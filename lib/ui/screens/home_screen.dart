@@ -8,6 +8,7 @@ import '../widgets/filter_chip_bar.dart';
 import '../widgets/transaction_list_tile.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/settings_scope.dart';
+import '../widgets/user_account_setup_dialog.dart';
 import 'add_edit_transaction_screen.dart';
 import 'categories_screen.dart';
 import 'reports_screen.dart';
@@ -147,13 +148,42 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildCashBookTab() {
     final theme = Theme.of(context);
+    final settingsVm = widget.settingsViewModel ?? SettingsScope.maybeOf(context);
     final transactions = widget.viewModel.filteredTransactions;
     final grouped = _groupTransactionsByDate(transactions);
+    final currentUser = widget.viewModel.currentUser;
 
     return Scaffold(
       appBar: AppBar(
         title: const AppBrandTitle(title: 'Cash Book'),
         actions: [
+          Tooltip(
+            message: 'My Account (${currentUser.name})',
+            child: InkWell(
+              onTap: () {
+                UserAccountSetupDialog.show(
+                  context,
+                  cashBookViewModel: widget.viewModel,
+                  settingsViewModel: settingsVm,
+                );
+              },
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                width: 32,
+                height: 32,
+                color: currentUser.color,
+                alignment: Alignment.center,
+                child: Text(
+                  currentUser.initials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
@@ -163,6 +193,71 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: CustomScrollView(
         slivers: [
+          // Account setup banner if not yet completed
+          if (!(settingsVm?.settings.hasCompletedAccountSetup ?? true))
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.account_circle_outlined,
+                        color: theme.colorScheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Set Up Your Account',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                            Text(
+                              'Add your name, phone & UPI ID for quick bill splitting',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          UserAccountSetupDialog.show(
+                            context,
+                            cashBookViewModel: widget.viewModel,
+                            settingsViewModel: settingsVm,
+                          );
+                        },
+                        child: const Text('Set Up', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // Filters Bar
           SliverToBoxAdapter(
             child: Padding(

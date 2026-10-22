@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'config/app_constants.dart';
 import 'data/services/cash_book_database_service.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/splash_screen.dart';
@@ -33,7 +34,7 @@ class CashBookApp extends StatefulWidget {
     this.viewModel,
     this.settingsViewModel,
     this.showSplash = false,
-    this.splashDuration = const Duration(milliseconds: 1000),
+    this.splashDuration = AppConstants.defaultSplashDuration,
   });
 
   @override
@@ -62,7 +63,7 @@ class _CashBookAppState extends State<CashBookApp> {
         return SettingsScope(
           notifier: _settingsViewModel,
           child: MaterialApp(
-            title: 'Cash Book',
+            title: AppConstants.appName,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.buildLightTheme(
               primaryColor: settings.primaryColor,

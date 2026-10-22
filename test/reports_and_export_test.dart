@@ -217,25 +217,41 @@ void main() {
       expect(find.byIcon(Icons.picture_as_pdf_rounded), findsAtLeastNWidgets(1));
       expect(find.text('Download PDF Statement'), findsOneWidget);
 
-      // Check Summary is visible by default
-      expect(find.text('Summary'), findsOneWidget);
+      // Check Total Cash In and Total Cash Out
       expect(find.text('Total Cash In'), findsOneWidget);
       expect(find.text('Total Cash Out'), findsOneWidget);
 
-      // Switch to Daily
-      await tester.tap(find.text('Daily'));
-      await tester.pumpAndSettle();
+      // Verify Category Breakdown section is present with Expense & Income tabs
+      expect(find.text('Category Breakdown'), findsOneWidget);
+      expect(find.textContaining('Expenses (1)'), findsOneWidget);
+      expect(find.textContaining('Income (1)'), findsOneWidget);
 
-      // Switch to Transaction List view mode
-      await tester.tap(find.textContaining('Transactions (2)'));
-      await tester.pumpAndSettle();
+      // Verify Transactions tab selector is removed from reports page
+      expect(find.textContaining('Transactions (2)'), findsNothing);
 
-      // Transactions should be listed
-      expect(find.text('Freelance Project'), findsOneWidget);
+      // Under Expenses, Food & Dining should be listed
+      await tester.ensureVisible(find.text('Food & Dining'));
+      expect(find.text('Food & Dining'), findsOneWidget);
+
+      // Tap on Food & Dining to drill down into its records
+      await tester.tap(find.text('Food & Dining'));
+      await tester.pumpAndSettle();
       expect(find.text('Groceries Market'), findsOneWidget);
 
-      // Switch back to Summary
-      await tester.tap(find.text('Summary'));
+      // Switch to Income category breakdown tab
+      await tester.ensureVisible(find.textContaining('Income (1)'));
+      await tester.tap(find.textContaining('Income (1)'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Salary'));
+      expect(find.text('Salary'), findsOneWidget);
+
+      // Tap on Salary to drill down into its records
+      await tester.tap(find.text('Salary'));
+      await tester.pumpAndSettle();
+      expect(find.text('Freelance Project'), findsOneWidget);
+
+      // Switch to Daily
+      await tester.tap(find.text('Daily'));
       await tester.pumpAndSettle();
 
       // Tap Download PDF Statement to open format picker sheet

@@ -22,9 +22,9 @@ enum DateFilter {
 }
 
 class CashBookViewModel extends ChangeNotifier {
-  final CashBookRepository _repository;
+  final ICashBookRepository _repository;
 
-  CashBookViewModel({CashBookRepository? repository})
+  CashBookViewModel({ICashBookRepository? repository})
       : _repository = repository ?? CashBookRepository();
 
   bool _isLoading = true;
@@ -344,20 +344,40 @@ class CashBookViewModel extends ChangeNotifier {
     await _repository.addTransaction(transaction);
   }
 
-  Future<void> updateTransaction(TransactionModel transaction) async {
+  bool isCurrentMonth(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month;
+  }
+
+  Future<bool> updateTransaction(TransactionModel transaction) async {
     final index = _transactions.indexWhere((t) => t.id == transaction.id);
     if (index != -1) {
+      final existing = _transactions[index];
+      if (!isCurrentMonth(existing.date) || !isCurrentMonth(transaction.date)) {
+        return false;
+      }
       _transactions[index] = transaction;
       _transactions.sort((a, b) => b.date.compareTo(a.date));
       notifyListeners();
       await _repository.updateTransaction(transaction);
+      return true;
     }
+    return false;
   }
 
-  Future<void> deleteTransaction(String id) async {
-    _transactions.removeWhere((t) => t.id == id);
-    notifyListeners();
-    await _repository.deleteTransaction(id);
+  Future<bool> deleteTransaction(String id) async {
+    final index = _transactions.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      final existing = _transactions[index];
+      if (!isCurrentMonth(existing.date)) {
+        return false;
+      }
+      _transactions.removeAt(index);
+      notifyListeners();
+      await _repository.deleteTransaction(id);
+      return true;
+    }
+    return false;
   }
 
   // Category CRUD
@@ -493,13 +513,16 @@ class CashBookViewModel extends ChangeNotifier {
     await _repository.addSplitExpense(savedExpense);
   }
 
-  Future<void> updateSplitExpense(
+  Future<bool> updateSplitExpense(
     SplitExpenseModel expense, {
     bool syncToCashBook = false,
   }) async {
     final index = _splitExpenses.indexWhere((e) => e.id == expense.id);
     if (index != -1) {
       final old = _splitExpenses[index];
+      if (!isCurrentMonth(old.date) || !isCurrentMonth(expense.date)) {
+        return false;
+      }
       String? linkedTxId = old.linkedCashBookTxId;
 
       if (syncToCashBook && expense.paidByPersonId == currentUser.id) {
@@ -532,13 +555,18 @@ class CashBookViewModel extends ChangeNotifier {
       _splitExpenses.sort((a, b) => b.date.compareTo(a.date));
       notifyListeners();
       await _repository.updateSplitExpense(updated);
+      return true;
     }
+    return false;
   }
 
-  Future<void> deleteSplitExpense(String id) async {
+  Future<bool> deleteSplitExpense(String id) async {
     final index = _splitExpenses.indexWhere((e) => e.id == id);
     if (index != -1) {
       final exp = _splitExpenses[index];
+      if (!isCurrentMonth(exp.date)) {
+        return false;
+      }
       if (exp.linkedCashBookTxId != null) {
         await _repository.deleteTransaction(exp.linkedCashBookTxId!);
         _transactions.removeWhere((t) => t.id == exp.linkedCashBookTxId);
@@ -546,7 +574,9 @@ class CashBookViewModel extends ChangeNotifier {
       _splitExpenses.removeAt(index);
       notifyListeners();
       await _repository.deleteSplitExpense(id);
+      return true;
     }
+    return false;
   }
 
   // --- Settlement Operations ---
@@ -600,10 +630,13 @@ class CashBookViewModel extends ChangeNotifier {
     await _repository.addSettlement(saved);
   }
 
-  Future<void> deleteSettlement(String id) async {
+  Future<bool> deleteSettlement(String id) async {
     final index = _settlements.indexWhere((s) => s.id == id);
     if (index != -1) {
       final st = _settlements[index];
+      if (!isCurrentMonth(st.date)) {
+        return false;
+      }
       if (st.linkedCashBookTxId != null) {
         await _repository.deleteTransaction(st.linkedCashBookTxId!);
         _transactions.removeWhere((t) => t.id == st.linkedCashBookTxId);
@@ -611,6 +644,32 @@ class CashBookViewModel extends ChangeNotifier {
       _settlements.removeAt(index);
       notifyListeners();
       await _repository.deleteSettlement(id);
+      return true;
+    }
+    return false;
+  }
+
+  /// Converts all recorded amounts in the database and in-memory state using [conversionFactor]
+  Future<void> convertAllCurrencyAmounts(
+    double conversionFactor, {
+    String? fromCurrency,
+    String? toCurrency,
+    Map<String, double>? ratesToInr,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      await _repository.convertAllCurrencyAmounts(
+        conversionFactor,
+        fromCurrency: fromCurrency,
+        toCurrency: toCurrency,
+        ratesToInr: ratesToInr,
+      );
+      await init();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 }
+

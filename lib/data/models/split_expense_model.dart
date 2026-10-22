@@ -3,12 +3,14 @@ class ExpenseSplitItem {
   final double amount;
   final double? percentage;
   final int? shares;
+  final double? baseInrAmount;
 
   const ExpenseSplitItem({
     required this.personId,
     required this.amount,
     this.percentage,
     this.shares,
+    this.baseInrAmount,
   });
 
   Map<String, dynamic> toSqliteMap(String expenseId, String splitId) {
@@ -19,6 +21,7 @@ class ExpenseSplitItem {
       'amount': amount,
       'percentage': percentage,
       'shares': shares,
+      if (baseInrAmount != null) 'base_inr_amount': baseInrAmount,
     };
   }
 
@@ -28,6 +31,7 @@ class ExpenseSplitItem {
       amount: (map['amount'] as num).toDouble(),
       percentage: (map['percentage'] as num?)?.toDouble(),
       shares: map['shares'] as int?,
+      baseInrAmount: (map['base_inr_amount'] as num?)?.toDouble(),
     );
   }
 
@@ -36,12 +40,14 @@ class ExpenseSplitItem {
     double? amount,
     double? percentage,
     int? shares,
+    double? baseInrAmount,
   }) {
     return ExpenseSplitItem(
       personId: personId ?? this.personId,
       amount: amount ?? this.amount,
       percentage: percentage ?? this.percentage,
       shares: shares ?? this.shares,
+      baseInrAmount: baseInrAmount ?? this.baseInrAmount,
     );
   }
 }
@@ -59,6 +65,7 @@ class SplitExpenseModel {
   final List<ExpenseSplitItem> splits;
   final String? linkedCashBookTxId;
   final DateTime createdAt;
+  final double? baseInrAmount;
 
   const SplitExpenseModel({
     required this.id,
@@ -73,6 +80,7 @@ class SplitExpenseModel {
     this.splits = const [],
     this.linkedCashBookTxId,
     required this.createdAt,
+    this.baseInrAmount,
   });
 
   SplitExpenseModel copyWith({
@@ -88,6 +96,7 @@ class SplitExpenseModel {
     List<ExpenseSplitItem>? splits,
     String? linkedCashBookTxId,
     DateTime? createdAt,
+    double? baseInrAmount,
   }) {
     return SplitExpenseModel(
       id: id ?? this.id,
@@ -102,6 +111,7 @@ class SplitExpenseModel {
       splits: splits ?? this.splits,
       linkedCashBookTxId: linkedCashBookTxId ?? this.linkedCashBookTxId,
       createdAt: createdAt ?? this.createdAt,
+      baseInrAmount: baseInrAmount ?? this.baseInrAmount,
     );
   }
 
@@ -118,6 +128,7 @@ class SplitExpenseModel {
       'split_type': splitType,
       'linked_cash_book_tx_id': linkedCashBookTxId,
       'created_at': createdAt.toIso8601String(),
+      if (baseInrAmount != null) 'base_inr_amount': baseInrAmount,
     };
   }
 
@@ -138,6 +149,7 @@ class SplitExpenseModel {
       splits: splits,
       linkedCashBookTxId: map['linked_cash_book_tx_id'] as String?,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
+      baseInrAmount: (map['base_inr_amount'] as num?)?.toDouble(),
     );
   }
 }

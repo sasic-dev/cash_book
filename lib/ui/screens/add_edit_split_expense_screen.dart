@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../data/models/person_model.dart';
 import '../../data/models/split_expense_model.dart';
+import '../../data/models/split_group_model.dart';
+import '../../data/services/split_strategy.dart';
 import '../utils/formatters.dart';
 import '../view_models/cash_book_view_model.dart';
 import '../widgets/add_edit_person_dialog.dart';
@@ -49,9 +51,10 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
     final exp = widget.initialExpense;
     final currentUserId = widget.viewModel.currentUser.id;
 
+    final displayTotal = exp != null ? AppFormatters.toDisplayAmount(exp.totalAmount) : null;
     _titleController = TextEditingController(text: exp?.title ?? '');
     _amountController = TextEditingController(
-      text: exp != null ? exp.totalAmount.toStringAsFixed(2) : '',
+      text: displayTotal != null ? displayTotal.toStringAsFixed(2) : '',
     );
     _notesController = TextEditingController(text: exp?.notes ?? '');
     _date = exp?.date ?? DateTime.now();
@@ -90,8 +93,9 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
 
       for (final s in exp.splits) {
         if (_splitModeIndex == 1) {
+          final displaySplitAmt = AppFormatters.toDisplayAmount(s.amount);
           _customInputControllers[s.personId] =
-              TextEditingController(text: s.amount.toStringAsFixed(2));
+              TextEditingController(text: displaySplitAmt.toStringAsFixed(2));
         } else if (_splitModeIndex == 2) {
           _customInputControllers[s.personId] = TextEditingController(
             text: s.percentage != null ? s.percentage!.toStringAsFixed(1) : '',
@@ -167,9 +171,27 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
         selectedPersonId: _paidById,
         onAddNewPerson: () async {
           Navigator.of(bottomSheetContext).pop();
-          await AddEditPersonDialog.show(context, viewModel: widget.viewModel);
-          if (mounted) {
-            setState(() {});
+          final newPerson = await AddEditPersonDialog.show(context, viewModel: widget.viewModel);
+          if (newPerson != null && mounted) {
+            if (_selectedGroupId != null) {
+              final grp = widget.viewModel.getGroupById(_selectedGroupId!);
+              if (grp != null && !grp.memberIds.contains(newPerson.id)) {
+                final updatedMemberIds = List<String>.from(grp.memberIds)..add(newPerson.id);
+                final updatedGroup = SplitGroupModel(
+                  id: grp.id,
+                  name: grp.name,
+                  iconCodePoint: grp.iconCodePoint,
+                  colorValue: grp.colorValue,
+                  memberIds: updatedMemberIds,
+                  createdAt: grp.createdAt,
+                );
+                await widget.viewModel.updateGroup(updatedGroup);
+              }
+            }
+            setState(() {
+              _paidById = newPerson.id;
+              _selectedParticipants.add(newPerson.id);
+            });
           }
         },
       ),
@@ -183,13 +205,35 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
     }
   }
 
-  void _saveExpense() {
+  void _saveExpense() async {
+    if (widget.initialExpense != null &&
+        !AppFormatters.isCurrentMonth(widget.initialExpense!.date)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot edit split expenses from past months.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
-    final totalAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    if (totalAmount <= 0) {
+    final enteredTotalAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    if (enteredTotalAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter an amount greater than 0')),
+      );
+      return;
+    }
+
+    if (widget.initialExpense != null &&
+        !AppFormatters.isCurrentMonth(_date)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot change split expense date to a different month.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -201,81 +245,47 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
       return;
     }
 
-    final List<ExpenseSplitItem> splits = [];
-
-    if (_splitModeIndex == 0) {
-      // Equal split
-      final count = _selectedParticipants.length;
-      final baseShare = (totalAmount / count);
-      final roundedBase = double.parse(baseShare.toStringAsFixed(2));
-      double sumAllocated = 0.0;
-      final participantList = _selectedParticipants.toList();
-
-      for (int i = 0; i < participantList.length; i++) {
-        final pId = participantList[i];
-        if (i == participantList.length - 1) {
-          // Adjust last person with remaining rounding difference
-          final remainder = double.parse((totalAmount - sumAllocated).toStringAsFixed(2));
-          splits.add(ExpenseSplitItem(personId: pId, amount: remainder));
-        } else {
-          splits.add(ExpenseSplitItem(personId: pId, amount: roundedBase));
-          sumAllocated += roundedBase;
-        }
-      }
-    } else if (_splitModeIndex == 1) {
-      // Exact amounts
-      double totalEntered = 0.0;
-      for (final pId in _selectedParticipants) {
-        final ctrl = _customInputControllers[pId];
-        final val = double.tryParse(ctrl?.text.trim() ?? '') ?? 0.0;
-        totalEntered += val;
-        splits.add(ExpenseSplitItem(personId: pId, amount: val));
-      }
-
-      if ((totalEntered - totalAmount).abs() > 0.05) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Sum of exact amounts (${AppFormatters.currency(totalEntered)}) must equal total amount (${AppFormatters.currency(totalAmount)})',
-            ),
-          ),
-        );
-        return;
-      }
-    } else {
-      // Percentage
-      double totalPct = 0.0;
-      for (final pId in _selectedParticipants) {
-        final ctrl = _customInputControllers[pId];
-        final pct = double.tryParse(ctrl?.text.trim() ?? '') ?? 0.0;
-        totalPct += pct;
-        final share = double.parse(((pct / 100) * totalAmount).toStringAsFixed(2));
-        splits.add(ExpenseSplitItem(
-          personId: pId,
-          amount: share,
-          percentage: pct,
-        ));
-      }
-
-      if ((totalPct - 100).abs() > 0.1) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Total percentages ($totalPct%) must equal 100%'),
-          ),
-        );
-        return;
-      }
-    }
-
-    final isEditing = widget.initialExpense != null;
+    final totalAmount = AppFormatters.fromDisplayAmount(enteredTotalAmount);
     final splitTypeStr = _splitModeIndex == 0
         ? 'equal'
         : (_splitModeIndex == 1 ? 'exact' : 'percentage');
+    final strategy = SplitStrategyRegistry.getStrategy(splitTypeStr);
 
+    final Map<String, double> customInputs = {};
+    for (final pId in _selectedParticipants) {
+      final ctrl = _customInputControllers[pId];
+      final val = double.tryParse(ctrl?.text.trim() ?? '') ?? 0.0;
+      if (_splitModeIndex == 1) {
+        customInputs[pId] = AppFormatters.fromDisplayAmount(val);
+      } else {
+        customInputs[pId] = val;
+      }
+    }
+
+    final validationError = strategy.validate(
+      totalAmount: totalAmount,
+      participantIds: _selectedParticipants.toList(),
+      customInputs: customInputs,
+    );
+    if (validationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(validationError)),
+      );
+      return;
+    }
+
+    final splits = strategy.calculateSplits(
+      totalAmount: totalAmount,
+      participantIds: _selectedParticipants.toList(),
+      customInputs: customInputs,
+    );
+
+    final isEditing = widget.initialExpense != null;
     final expense = SplitExpenseModel(
       id: widget.initialExpense?.id ?? 'exp_${DateTime.now().millisecondsSinceEpoch}',
       title: _titleController.text.trim(),
       totalAmount: totalAmount,
+      baseInrAmount: totalAmount,
       date: _date,
       paidByPersonId: _paidById,
       groupId: _selectedGroupId,
@@ -288,27 +298,38 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
     );
 
     if (isEditing) {
-      widget.viewModel.updateSplitExpense(
+      final success = await widget.viewModel.updateSplitExpense(
         expense,
         syncToCashBook: _syncToCashBook,
       );
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update: split expenses outside current month cannot be modified.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     } else {
-      widget.viewModel.addSplitExpense(
+      await widget.viewModel.addSplitExpense(
         expense,
         syncToCashBook: _syncToCashBook,
       );
     }
 
-    Navigator.of(context).pop();
+    if (mounted) {
+      Navigator.of(context).pop();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isEditing ? 'Expense updated' : 'Expense split created',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isEditing ? 'Expense updated' : 'Expense split created',
+          ),
+          backgroundColor: Colors.teal.shade700,
         ),
-        backgroundColor: Colors.teal.shade700,
-      ),
-    );
+      );
+    }
   }
 
   @override
@@ -316,19 +337,24 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final isEditing = widget.initialExpense != null;
+    final isCurrentMonth = widget.initialExpense == null ||
+        AppFormatters.isCurrentMonth(widget.initialExpense!.date);
     final totalAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
     final available = _availablePeople;
 
     return Scaffold(
       appBar: AppBar(
         title: AppBrandTitle(
-          title: isEditing ? 'Edit Split Expense' : 'New Split Expense',
+          title: isEditing
+              ? (isCurrentMonth ? 'Edit Split Expense' : 'View Split Expense (Locked)')
+              : 'New Split Expense',
           logoSize: 24,
         ),
         actions: [
-          if (isEditing)
+          if (isEditing && isCurrentMonth)
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.red),
+              tooltip: 'Delete Split Expense',
               onPressed: () async {
                 final nav = Navigator.of(context);
                 final confirm = await showDialog<bool>(
@@ -351,6 +377,18 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                   nav.pop();
                 }
               },
+            )
+          else if (isEditing && !isCurrentMonth)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Tooltip(
+                message: 'Past Month Record (Read-Only)',
+                child: Icon(
+                  Icons.lock_rounded,
+                  color: isDark ? const Color(0xFFFACC15) : const Color(0xFFD97706),
+                  size: 22,
+                ),
+              ),
             ),
         ],
       ),
@@ -359,6 +397,55 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
           children: [
+            if (!isCurrentMonth) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF332A15) : const Color(0xFFFEF9C3),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF854D0E) : const Color(0xFFFDE047),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.lock_rounded,
+                      size: 20,
+                      color: isDark ? const Color(0xFFFACC15) : const Color(0xFF854D0E),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Past Month Record (Read-Only)',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFFFEF08A) : const Color(0xFF713F12),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Editing and deleting are only permitted for current month data. This split expense cannot be modified.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF854D0E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Amount Input Card
             Container(
               decoration: BoxDecoration(
@@ -382,6 +469,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _amountController,
+                    readOnly: !isCurrentMonth,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     textAlign: TextAlign.center,
                     autofocus: !isEditing,
@@ -412,6 +500,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
             // Title
             TextFormField(
               controller: _titleController,
+              readOnly: !isCurrentMonth,
               decoration: const InputDecoration(
                 labelText: 'Expense Description',
                 hintText: 'e.g. Dinner at Olive, Grocery items',
@@ -453,23 +542,25 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                   );
                 }),
               ],
-              onChanged: _onGroupChanged,
+              onChanged: isCurrentMonth ? _onGroupChanged : null,
             ),
             const SizedBox(height: 16),
 
             // Date picker (Full width)
             InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _date,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now().add(const Duration(days: 30)),
-                );
-                if (picked != null) {
-                  setState(() => _date = picked);
-                }
-              },
+              onTap: isCurrentMonth
+                  ? () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _date,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 30)),
+                      );
+                      if (picked != null) {
+                        setState(() => _date = picked);
+                      }
+                    }
+                  : null,
               child: InputDecorator(
                 decoration: const InputDecoration(
                   labelText: 'Date',
@@ -489,24 +580,11 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
             const SizedBox(height: 16),
 
             // Paid By Section Header & Selector
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Paid By',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () async {
-                    await AddEditPersonDialog.show(context, viewModel: widget.viewModel);
-                    if (mounted) setState(() {});
-                  },
-                  icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                  label: const Text('Add Friend'),
-                ),
-              ],
+            Text(
+              'Paid By',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
 
@@ -518,7 +596,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                 final isYou = payer.id == widget.viewModel.currentUser.id;
 
                 return InkWell(
-                  onTap: () => _openPaidByPickerSheet(available),
+                  onTap: isCurrentMonth ? () => _openPaidByPickerSheet(available) : null,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
@@ -606,37 +684,78 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                             ],
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF334155) : const Color(0xFFF8FAFC),
-                            border: Border.all(
-                              color: isDark ? const Color(0xFF475569) : const Color(0xFFE2E8F0),
+                        if (isCurrentMonth)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? const Color(0xFF334155)
+                                  : const Color(0xFFF1F5F9),
+                              border: Border.all(
+                                color: isDark
+                                    ? const Color(0xFF475569)
+                                    : const Color(0xFFCBD5E1),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Select',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? const Color(0xFFF8FAFC)
+                                        : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 18,
+                                  color: isDark
+                                      ? const Color(0xFFF8FAFC)
+                                      : const Color(0xFF0F172A),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                              border: Border.all(
+                                color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: 14,
+                                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Locked',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Select',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Icon(
-                                Icons.keyboard_arrow_down_rounded,
-                                size: 18,
-                                color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -663,29 +782,31 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                 const ButtonSegment(value: 2, label: Text('Percent (%)')),
               ],
               selected: {_splitModeIndex},
-              onSelectionChanged: (setVal) {
-                setState(() {
-                  _splitModeIndex = setVal.first;
-                  // Auto-fill initial values for exact/percentage if blank
-                  if (_splitModeIndex == 1 && totalAmount > 0) {
-                    final share = totalAmount / (_selectedParticipants.isEmpty ? 1 : _selectedParticipants.length);
-                    for (final pId in _selectedParticipants) {
-                      _customInputControllers.putIfAbsent(
-                        pId,
-                        () => TextEditingController(text: share.toStringAsFixed(2)),
-                      );
+              onSelectionChanged: isCurrentMonth
+                  ? (setVal) {
+                      setState(() {
+                        _splitModeIndex = setVal.first;
+                        // Auto-fill initial values for exact/percentage if blank
+                        if (_splitModeIndex == 1 && totalAmount > 0) {
+                          final share = totalAmount / (_selectedParticipants.isEmpty ? 1 : _selectedParticipants.length);
+                          for (final pId in _selectedParticipants) {
+                            _customInputControllers.putIfAbsent(
+                              pId,
+                              () => TextEditingController(text: share.toStringAsFixed(2)),
+                            );
+                          }
+                        } else if (_splitModeIndex == 2) {
+                          final pct = 100.0 / (_selectedParticipants.isEmpty ? 1 : _selectedParticipants.length);
+                          for (final pId in _selectedParticipants) {
+                            _customInputControllers.putIfAbsent(
+                              pId,
+                              () => TextEditingController(text: pct.toStringAsFixed(1)),
+                            );
+                          }
+                        }
+                      });
                     }
-                  } else if (_splitModeIndex == 2) {
-                    final pct = 100.0 / (_selectedParticipants.isEmpty ? 1 : _selectedParticipants.length);
-                    for (final pId in _selectedParticipants) {
-                      _customInputControllers.putIfAbsent(
-                        pId,
-                        () => TextEditingController(text: pct.toStringAsFixed(1)),
-                      );
-                    }
-                  }
-                });
-              },
+                  : null,
             ),
             const SizedBox(height: 16),
 
@@ -700,21 +821,22 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      if (_selectedParticipants.length == available.length) {
-                        // Keep at least 1
-                        _selectedParticipants = {_paidById};
-                      } else {
-                        _selectedParticipants = available.map((p) => p.id).toSet();
-                      }
-                    });
-                  },
-                  child: Text(_selectedParticipants.length == available.length
-                      ? 'Deselect All'
-                      : 'Select All'),
-                ),
+                if (isCurrentMonth)
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        if (_selectedParticipants.length == available.length) {
+                          // Keep at least 1
+                          _selectedParticipants = {_paidById};
+                        } else {
+                          _selectedParticipants = available.map((p) => p.id).toSet();
+                        }
+                      });
+                    },
+                    child: Text(_selectedParticipants.length == available.length
+                        ? 'Deselect All'
+                        : 'Select All'),
+                  ),
               ],
             ),
             const SizedBox(height: 6),
@@ -755,17 +877,19 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                     children: [
                       Checkbox(
                         value: isSelected,
-                        onChanged: (checked) {
-                          setState(() {
-                            if (checked == true) {
-                              _selectedParticipants.add(person.id);
-                            } else {
-                              if (_selectedParticipants.length > 1) {
-                                _selectedParticipants.remove(person.id);
+                        onChanged: isCurrentMonth
+                            ? (checked) {
+                                setState(() {
+                                  if (checked == true) {
+                                    _selectedParticipants.add(person.id);
+                                  } else {
+                                    if (_selectedParticipants.length > 1) {
+                                      _selectedParticipants.remove(person.id);
+                                    }
+                                  }
+                                });
                               }
-                            }
-                          });
-                        },
+                            : null,
                       ),
                       Container(
                         width: 32,
@@ -801,7 +925,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                               fit: BoxFit.scaleDown,
                               alignment: Alignment.centerRight,
                               child: Text(
-                                AppFormatters.currency(calculatedShare),
+                                AppFormatters.currency(calculatedShare, convertFromBase: false),
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: theme.colorScheme.primary,
@@ -821,12 +945,13 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                             width: 88,
                             child: TextField(
                               controller: ctrl,
+                              readOnly: !isCurrentMonth,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               decoration: InputDecoration(
                                 prefixText: '${AppFormatters.currencySymbol} ',
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                border: OutlineInputBorder(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                border: const OutlineInputBorder(
                                   borderRadius: BorderRadius.zero,
                                 ),
                               ),
@@ -845,6 +970,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                                 width: 58,
                                 child: TextField(
                                   controller: ctrl,
+                                  readOnly: !isCurrentMonth,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: const InputDecoration(
                                     suffixText: '%',
@@ -864,7 +990,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                                   fit: BoxFit.scaleDown,
                                   alignment: Alignment.centerRight,
                                   child: Text(
-                                    AppFormatters.currency(calculatedShare),
+                                    AppFormatters.currency(calculatedShare, convertFromBase: false),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: theme.colorScheme.primary,
@@ -895,11 +1021,11 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
                 title: const Text('Record in my Cash Book'),
                 subtitle: Text(
                   _paidById == widget.viewModel.currentUser.id
-                      ? 'Logs ${AppFormatters.currency(totalAmount)} as an Expense in Cash Book'
+                      ? 'Logs ${AppFormatters.currency(totalAmount, convertFromBase: false)} as an Expense in Cash Book'
                       : 'Only available when paid by You',
                   style: theme.textTheme.bodySmall,
                 ),
-                onChanged: _paidById == widget.viewModel.currentUser.id
+                onChanged: isCurrentMonth && _paidById == widget.viewModel.currentUser.id
                     ? (val) => setState(() => _syncToCashBook = val)
                     : null,
               ),
@@ -909,6 +1035,7 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
             // Notes
             TextField(
               controller: _notesController,
+              readOnly: !isCurrentMonth,
               decoration: const InputDecoration(
                 labelText: 'Notes (Optional)',
                 prefixIcon: Icon(Icons.note_outlined),
@@ -920,20 +1047,39 @@ class _AddEditSplitExpenseScreenState extends State<AddEditSplitExpenseScreen> {
             const SizedBox(height: 24),
 
             // Save Button
-            FilledButton.icon(
-              onPressed: _saveExpense,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
+            if (isCurrentMonth)
+              FilledButton.icon(
+                onPressed: _saveExpense,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.zero,
+                  ),
+                ),
+                icon: const Icon(Icons.check_rounded),
+                label: Text(
+                  isEditing ? 'Update Split Expense' : 'Save Split Expense',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              )
+            else
+              FilledButton.icon(
+                onPressed: null,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: isDark
+                      ? const Color(0xFF334155)
+                      : Colors.grey.shade400,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.zero,
+                  ),
+                ),
+                icon: const Icon(Icons.lock_rounded, size: 18),
+                label: const Text(
+                  'Locked — Past Month Record',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
               ),
-              icon: const Icon(Icons.check_rounded),
-              label: Text(
-                isEditing ? 'Update Split Expense' : 'Save Split Expense',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
           ],
         ),
       ),
@@ -1041,15 +1187,28 @@ class _PaidByPickerBottomSheetState extends State<_PaidByPickerBottomSheet> {
                           ],
                         ),
                       ),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
+                      FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
                           visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero,
+                          ),
                         ),
                         onPressed: widget.onAddNewPerson,
-                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                        label: const Text('Add Friend'),
+                        icon: const Icon(Icons.person_add_rounded, size: 16),
+                        label: const Text(
+                          '+ Friend',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.close_rounded, size: 20),
                         onPressed: () => Navigator.of(context).pop(),

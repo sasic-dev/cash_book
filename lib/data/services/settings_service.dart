@@ -1,10 +1,20 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../config/app_constants.dart';
 import '../models/app_settings.dart';
 
-class SettingsService {
-  static const String _settingsKey = 'app_settings_v1';
+/// Abstract contract for app settings persistence.
+/// Follows Dependency Inversion Principle (DIP).
+abstract class ISettingsService {
+  Future<AppSettings> loadSettings();
+  Future<void> saveSettings(AppSettings settings);
+  Future<void> clearSettings();
+}
 
+class SettingsService implements ISettingsService {
+  static const String _settingsKey = AppConstants.keySettings;
+
+  @override
   Future<AppSettings> loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -20,6 +30,7 @@ class SettingsService {
     }
   }
 
+  @override
   Future<void> saveSettings(AppSettings settings) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -29,6 +40,7 @@ class SettingsService {
     }
   }
 
+  @override
   Future<void> clearSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();

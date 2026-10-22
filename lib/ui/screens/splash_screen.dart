@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../view_models/cash_book_view_model.dart';
 import 'home_screen.dart';
 
@@ -11,7 +12,7 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({
     super.key,
     this.injectedViewModel,
-    this.duration = const Duration(milliseconds: 1000),
+    this.duration = AppConstants.defaultSplashDuration,
   });
 
   @override
@@ -111,7 +112,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF090D16),
+      backgroundColor: AppConstants.darkScaffoldBg,
       body: GestureDetector(
         onTap: _navigateToHome, // Tap anywhere to skip smoothly
         behavior: HitTestBehavior.opaque,
@@ -123,8 +124,8 @@ class _SplashScreenState extends State<SplashScreen>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF0F172A),
-                Color(0xFF090D16),
+                AppConstants.darkSurface,
+                AppConstants.darkScaffoldBg,
               ],
             ),
           ),
@@ -160,13 +161,13 @@ class _SplashScreenState extends State<SplashScreen>
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(22),
                             child: Image.asset(
-                              'assets/icons/app_icon.png',
+                              AppConstants.appIconAsset,
                               width: 96,
                               height: 96,
                               fit: BoxFit.contain,
                               errorBuilder: (context, error, stackTrace) =>
                                   Container(
-                                color: const Color(0xFF1E40AF),
+                                color: const Color(AppConstants.defaultPrimaryColorValue),
                                 child: const Icon(
                                   Icons.account_balance_wallet_rounded,
                                   size: 48,
@@ -188,7 +189,7 @@ class _SplashScreenState extends State<SplashScreen>
                           child: Column(
                             children: [
                               const Text(
-                                'Cash Book',
+                                AppConstants.appName,
                                 style: TextStyle(
                                   fontSize: 28,
                                   fontWeight: FontWeight.w800,
@@ -203,19 +204,19 @@ class _SplashScreenState extends State<SplashScreen>
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1E293B),
+                                  color: AppConstants.darkCardBg,
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: const Color(0xFF334155),
+                                    color: AppConstants.darkBorder,
                                   ),
                                 ),
                                 child: const Text(
-                                  'SMART LEDGER',
+                                  AppConstants.appSubtitle,
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 1.2,
-                                    color: Color(0xFF94A3B8),
+                                    color: AppConstants.darkTextSecondary,
                                   ),
                                 ),
                               ),
@@ -238,19 +239,19 @@ class _SplashScreenState extends State<SplashScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.shield_outlined,
                             size: 14,
-                            color: const Color(0xFF64748B),
+                            color: AppConstants.lightTextSecondary,
                           ),
                           const SizedBox(width: 6),
                           const Text(
-                            '100% Private • Local Storage',
+                            AppConstants.appTrustBadge,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0.2,
-                              color: Color(0xFF64748B),
+                              color: AppConstants.lightTextSecondary,
                             ),
                           ),
                         ],

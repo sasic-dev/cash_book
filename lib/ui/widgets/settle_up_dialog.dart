@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../config/app_constants.dart';
+import '../../data/models/person_model.dart';
 import '../../data/models/settlement_model.dart';
 import '../utils/formatters.dart';
 import '../view_models/cash_book_view_model.dart';
@@ -51,10 +54,10 @@ class _SettleUpDialogState extends State<SettleUpDialog> {
   late TextEditingController _amountController;
   final TextEditingController _notesController = TextEditingController();
   DateTime _date = DateTime.now();
-  String _paymentMethod = 'UPI';
+  String _paymentMethod = AppConstants.defaultPaymentMethod;
   bool _syncToCashBook = true;
 
-  final List<String> _paymentMethods = ['UPI', 'Cash', 'Bank Transfer', 'Other'];
+  final List<String> _paymentMethods = AppConstants.settlementPaymentMethods;
 
   @override
   void initState() {
@@ -66,8 +69,11 @@ class _SettleUpDialogState extends State<SettleUpDialog> {
     _payerId = widget.initialPayerId ?? defaultOtherId;
     _receiverId = widget.initialReceiverId ?? currentUserId;
 
-    final initialAmount = widget.suggestedAmount != null && widget.suggestedAmount! > 0
-        ? widget.suggestedAmount!.toStringAsFixed(2)
+    final initialDisplayAmount = widget.suggestedAmount != null && widget.suggestedAmount! > 0
+        ? AppFormatters.toDisplayAmount(widget.suggestedAmount!)
+        : null;
+    final initialAmount = initialDisplayAmount != null
+        ? initialDisplayAmount.toStringAsFixed(2)
         : '';
     _amountController = TextEditingController(text: initialAmount);
   }
@@ -80,8 +86,8 @@ class _SettleUpDialogState extends State<SettleUpDialog> {
   }
 
   void _saveSettlement() {
-    final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    if (amount <= 0) {
+    final enteredAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+    if (enteredAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid amount greater than 0')),
       );
@@ -95,11 +101,14 @@ class _SettleUpDialogState extends State<SettleUpDialog> {
       return;
     }
 
+    final amount = AppFormatters.fromDisplayAmount(enteredAmount);
+
     final settlement = SettlementModel(
       id: 'settle_${DateTime.now().millisecondsSinceEpoch}',
       payerId: _payerId,
       receiverId: _receiverId,
       amount: amount,
+      baseInrAmount: amount,
       date: _date,
       groupId: widget.groupId,
       paymentMethod: _paymentMethod,
@@ -294,7 +303,87 @@ class _SettleUpDialogState extends State<SettleUpDialog> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            Builder(
+              builder: (context) {
+                final receiverPerson = people.cast<PersonModel?>().firstWhere(
+                  (p) => p?.id == _receiverId,
+                  orElse: () => null,
+                );
+                final upiId = receiverPerson?.upiId?.trim();
+                if (upiId == null || upiId.isEmpty) {
+                  return const SizedBox(height: 16);
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.qr_code_rounded,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Receiver's UPI ID",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                upiId,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          ),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: upiId));
+                            if (_paymentMethod != AppConstants.defaultPaymentMethod &&
+                                _paymentMethods.contains(AppConstants.defaultPaymentMethod)) {
+                              setState(() {
+                                _paymentMethod = AppConstants.defaultPaymentMethod;
+                              });
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Copied UPI ID: $upiId'),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 14),
+                          label: const Text('Copy', style: TextStyle(fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
 
             // Amount Field
             TextField(

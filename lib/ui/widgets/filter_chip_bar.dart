@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/transaction_type.dart';
 import '../utils/formatters.dart';
 import '../view_models/cash_book_view_model.dart';
@@ -38,8 +39,8 @@ class FilterChipBar extends StatelessWidget {
                         final now = DateTime.now();
                         final picked = await showDateRangePicker(
                           context: context,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2035),
+                          firstDate: DateTime(AppConstants.datePickerStartYear),
+                          lastDate: DateTime(AppConstants.datePickerEndYear),
                           initialDateRange: viewModel.customDateRange ??
                               DateTimeRange(
                                 start: now.subtract(const Duration(days: 7)),

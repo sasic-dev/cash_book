@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import '../../config/app_constants.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/transaction_model.dart';
 import '../../data/models/transaction_type.dart';
@@ -45,7 +46,7 @@ enum PdfGroupingMode {
 }
 
 class ReportExportService {
-  static const _channel = MethodChannel('com.example.cash_book/pdf_export');
+  static const _channel = MethodChannel(AppConstants.pdfChannel);
   /// Generates a professional multi-page PDF financial statement
   static Future<Uint8List> generatePdf({
     required String periodTitle,
@@ -97,7 +98,7 @@ class ReportExportService {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.Text(
-                      'CASH BOOK STATEMENT',
+                      AppConstants.reportStatementTitle,
                       style: pw.TextStyle(
                         fontSize: 16,
                         fontWeight: pw.FontWeight.bold,
@@ -149,7 +150,7 @@ class ReportExportService {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text(
-                  'Cash Book - Financial Records',
+                  AppConstants.reportStatementFooter,
                   style: const pw.TextStyle(fontSize: 8, color: neutralMuted),
                 ),
                 pw.Text(
@@ -1054,7 +1055,7 @@ class ReportExportService {
       final cleanPeriod = periodTitle.toLowerCase().replaceAll(RegExp(r'\s+'), '_');
       final dateSlug = DateTime.now().toIso8601String().substring(0, 10);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = 'cash_book_${cleanPeriod}_${dateSlug}_$timestamp.csv';
+      final fileName = '${AppConstants.csvFilePrefix}${cleanPeriod}_${dateSlug}_$timestamp.csv';
 
       final targetDir = await _resolveDownloadDirectory();
       final filePath = '${targetDir.path}${Platform.pathSeparator}$fileName';
@@ -1079,7 +1080,7 @@ class ReportExportService {
           transactions: transactions,
           categoriesMap: categoriesMap,
         );
-        final fileName = 'cash_book_report_${DateTime.now().millisecondsSinceEpoch}.csv';
+        final fileName = '${AppConstants.csvFilePrefix}report_${DateTime.now().millisecondsSinceEpoch}.csv';
         final fallbackDir = Directory.systemTemp;
         final fallbackPath = '${fallbackDir.path}${Platform.pathSeparator}$fileName';
         final file = File(fallbackPath);

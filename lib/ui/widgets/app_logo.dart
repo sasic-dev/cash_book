@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 
 /// Reusable Cash Book brand logo widget with flat UI styling.
 class AppLogo extends StatelessWidget {
@@ -7,7 +8,7 @@ class AppLogo extends StatelessWidget {
 
   const AppLogo({
     super.key,
-    this.size = 28,
+    this.size = AppConstants.defaultLogoSize,
     this.borderRadius = 0,
   });
 
@@ -18,12 +19,12 @@ class AppLogo extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+        border: Border.all(color: AppConstants.lightInputBorder, width: 1),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
         child: Image.asset(
-          'assets/icons/app_icon.png',
+          AppConstants.appIconAsset,
           width: size,
           height: size,
           fit: BoxFit.cover,

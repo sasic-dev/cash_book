@@ -2,15 +2,95 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cash_book/data/models/app_settings.dart';
+import 'package:cash_book/data/models/category_model.dart';
+import 'package:cash_book/data/models/person_model.dart';
+import 'package:cash_book/data/models/settlement_model.dart';
+import 'package:cash_book/data/models/split_expense_model.dart';
+import 'package:cash_book/data/models/split_group_model.dart';
+import 'package:cash_book/data/models/transaction_model.dart';
+import 'package:cash_book/data/repositories/cash_book_repository.dart';
 import 'package:cash_book/ui/utils/formatters.dart';
+import 'package:cash_book/ui/view_models/cash_book_view_model.dart';
 import 'package:cash_book/ui/view_models/settings_view_model.dart';
 import 'package:cash_book/ui/screens/settings_screen.dart';
+import 'package:cash_book/ui/widgets/user_account_setup_dialog.dart';
+
+class FakeCashBookRepository implements ICashBookRepository {
+  List<PersonModel> people = [PersonModel.defaultCurrentUser];
+  List<CategoryModel> categories = CategoryModel.defaultCategories;
+  List<TransactionModel> transactions = [];
+  List<SplitGroupModel> groups = [];
+  List<SplitExpenseModel> splitExpenses = [];
+  List<SettlementModel> settlements = [];
+
+  @override
+  Future<void> init() async {}
+  @override
+  Future<List<PersonModel>> getPersons() async => people;
+  @override
+  Future<void> updatePerson(PersonModel person) async {
+    final idx = people.indexWhere((p) => p.id == person.id);
+    if (idx != -1) people[idx] = person;
+  }
+  @override
+  Future<void> addPerson(PersonModel person) async => people.add(person);
+  @override
+  Future<bool> deletePerson(String id) async {
+    people.removeWhere((p) => p.id == id);
+    return true;
+  }
+  @override
+  Future<List<CategoryModel>> getCategories() async => categories;
+  @override
+  Future<void> addCategory(CategoryModel category) async => categories.add(category);
+  @override
+  Future<void> updateCategory(CategoryModel category) async {}
+  @override
+  Future<bool> deleteCategory(String id) async => true;
+  @override
+  Future<void> resetCategoriesToDefaults() async {}
+  @override
+  Future<List<TransactionModel>> getTransactions() async => transactions;
+  @override
+  Future<void> addTransaction(TransactionModel transaction) async => transactions.add(transaction);
+  @override
+  Future<void> updateTransaction(TransactionModel transaction) async {}
+  @override
+  Future<void> deleteTransaction(String id) async {}
+  @override
+  Future<void> convertAllCurrencyAmounts(double factor, {String? fromCurrency, String? toCurrency, Map<String, double>? ratesToInr}) async {}
+  @override
+  Future<List<SplitGroupModel>> getGroups() async => groups;
+  @override
+  Future<void> addGroup(SplitGroupModel group) async => groups.add(group);
+  @override
+  Future<void> updateGroup(SplitGroupModel group) async {}
+  @override
+  Future<void> deleteGroup(String id) async => groups.removeWhere((g) => g.id == id);
+  @override
+  Future<List<SplitExpenseModel>> getSplitExpenses({String? groupId, String? personId}) async => splitExpenses;
+  @override
+  Future<void> addSplitExpense(SplitExpenseModel expense) async => splitExpenses.add(expense);
+  @override
+  Future<void> updateSplitExpense(SplitExpenseModel expense) async {}
+  @override
+  Future<void> deleteSplitExpense(String id) async => splitExpenses.removeWhere((e) => e.id == id);
+  @override
+  Future<List<SettlementModel>> getSettlements({String? groupId, String? personId}) async => settlements;
+  @override
+  Future<void> addSettlement(SettlementModel settlement) async => settlements.add(settlement);
+  @override
+  Future<void> deleteSettlement(String id) async => settlements.removeWhere((s) => s.id == id);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
   });
@@ -459,5 +539,250 @@ void main() {
       expect(vm.settings.dateFormatPattern, equals('dd MMM yyyy'));
       expect(vm.settings.is24HourTime, isFalse);
     });
+
+    testWidgets('Displays exactly 4 necessary fonts in font picker', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final vm = SettingsViewModel();
+      await vm.init();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(settingsViewModel: vm),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(AppSettings.fontPresets.length, equals(4));
+      expect(AppSettings.fontPresets, containsAll(['Inter', 'Roboto', 'Poppins', 'System']));
+      expect(find.text('Inter'), findsWidgets);
+      expect(find.text('Roboto'), findsWidgets);
+      expect(find.text('Poppins'), findsWidgets);
+      expect(find.text('System'), findsWidgets);
+    });
+
+    testWidgets('Displays exactly 3 currencies with conversion and INR as default', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final vm = SettingsViewModel();
+      await vm.init();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(settingsViewModel: vm),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(AppSettings.presetCurrencies.length, equals(3));
+      final codes = AppSettings.presetCurrencies.map((c) => c.code).toList();
+      expect(codes, equals(['INR', 'USD', 'EUR']));
+
+      // INR is default
+      expect(vm.settings.currencyCode, equals('INR'));
+      expect(vm.settings.currencySymbol, equals('₹'));
+      expect(find.text('₹ INR'), findsWidgets);
+      expect(find.text('\$ USD'), findsWidgets);
+      expect(find.text('€ EUR'), findsWidgets);
+
+      // Verify Currency Converter is rendered
+      expect(find.text('Currency Converter (INR Base)'), findsOneWidget);
+    });
+
+    testWidgets('Displays exactly 4 date formats and 4 time formats', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 5000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final vm = SettingsViewModel();
+      await vm.init();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettingsScreen(settingsViewModel: vm),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(AppSettings.dateFormatPresets.length, equals(4));
+      expect(AppSettings.timeFormatPresets.length, equals(4));
+
+      final datePatterns = AppSettings.dateFormatPresets.map((d) => d.pattern).toList();
+      expect(datePatterns, equals(['dd MMM yyyy', 'dd/MM/yyyy', 'MM/dd/yyyy', 'yyyy-MM-dd']));
+
+      final timePatterns = AppSettings.timeFormatPresets.map((t) => t.pattern).toList();
+      expect(timePatterns, equals(['hh:mm a', 'HH:mm', 'hh:mm:ss a', 'HH:mm:ss']));
+
+      // Select 12h with seconds
+      final sec12Finder = find.text('12h + Sec');
+      expect(sec12Finder, findsOneWidget);
+      await tester.tap(sec12Finder);
+      await tester.pumpAndSettle();
+
+      expect(vm.settings.timeFormatPattern, equals('hh:mm:ss a'));
+      expect(AppFormatters.timeFormatPattern, equals('hh:mm:ss a'));
+    });
+  });
+
+  group('Currency Conversion Helper Tests', () {
+    test('Converts between INR, USD, and EUR accurately', () {
+      // 1000 INR to USD at default rate (86.50)
+      final usd = CurrencyConversionHelper.convert(1000, fromCode: 'INR', toCode: 'USD');
+      expect(usd, closeTo(11.56, 0.01));
+
+      // 100 USD to INR
+      final inrFromUsd = CurrencyConversionHelper.convert(100, fromCode: 'USD', toCode: 'INR');
+      expect(inrFromUsd, equals(8650.0));
+
+      // 100 EUR to INR at default rate (94.00)
+      final inrFromEur = CurrencyConversionHelper.convert(100, fromCode: 'EUR', toCode: 'INR');
+      expect(inrFromEur, equals(9400.0));
+
+      // 100 EUR to USD
+      final usdFromEur = CurrencyConversionHelper.convert(100, fromCode: 'EUR', toCode: 'USD');
+      expect(usdFromEur, closeTo(108.67, 0.01));
+    });
+
+    test('Conversion factor calculation matches', () {
+      final factorInrToUsd = CurrencyConversionHelper.getFactor(fromCode: 'INR', toCode: 'USD');
+      expect(factorInrToUsd, closeTo(1 / 86.50, 0.0001));
+
+      final factorUsdToInr = CurrencyConversionHelper.getFactor(fromCode: 'USD', toCode: 'INR');
+      expect(factorUsdToInr, equals(86.50));
+
+      final factorSame = CurrencyConversionHelper.getFactor(fromCode: 'INR', toCode: 'INR');
+      expect(factorSame, equals(1.0));
+    });
+  });
+
+  group('User Account Profile Tests', () {
+    test('AppSettings handles account setup properties and serialization', () {
+      const defaultSettings = AppSettings();
+      expect(defaultSettings.userName, equals('You'));
+      expect(defaultSettings.userPhone, isNull);
+      expect(defaultSettings.userUpiId, isNull);
+      expect(defaultSettings.hasCompletedAccountSetup, isFalse);
+
+      final updated = defaultSettings.copyWith(
+        userName: 'Sasic',
+        userPhone: '+91 9876543210',
+        userUpiId: 'sasic@upi',
+        hasCompletedAccountSetup: true,
+      );
+
+      expect(updated.userName, equals('Sasic'));
+      expect(updated.userPhone, equals('+91 9876543210'));
+      expect(updated.userUpiId, equals('sasic@upi'));
+      expect(updated.hasCompletedAccountSetup, isTrue);
+
+      final map = updated.toMap();
+      final restored = AppSettings.fromMap(map);
+      expect(restored.userName, equals('Sasic'));
+      expect(restored.userPhone, equals('+91 9876543210'));
+      expect(restored.userUpiId, equals('sasic@upi'));
+      expect(restored.hasCompletedAccountSetup, isTrue);
+    });
+
+    test('SettingsViewModel.updateAccountProfile persists and notifies', () async {
+      final vm = SettingsViewModel();
+      await vm.init();
+
+      await vm.updateAccountProfile(
+        name: 'Arun Kumar',
+        phone: '9840012345',
+        upiId: 'arun@okaxis',
+        completed: true,
+      );
+
+      expect(vm.settings.userName, equals('Arun Kumar'));
+      expect(vm.settings.userPhone, equals('9840012345'));
+      expect(vm.settings.userUpiId, equals('arun@okaxis'));
+      expect(vm.settings.hasCompletedAccountSetup, isTrue);
+
+      // Verify persistence across reload
+      final reloadedVm = SettingsViewModel();
+      await reloadedVm.init();
+      expect(reloadedVm.settings.userName, equals('Arun Kumar'));
+      expect(reloadedVm.settings.userPhone, equals('9840012345'));
+      expect(reloadedVm.settings.userUpiId, equals('arun@okaxis'));
+      expect(reloadedVm.settings.hasCompletedAccountSetup, isTrue);
+    });
+
+    testWidgets('UserAccountSetupDialog updates CashBookViewModel currentUser and SettingsViewModel', (tester) async {
+      final repository = FakeCashBookRepository();
+      final cashBookVm = CashBookViewModel(repository: repository);
+      final settingsVm = SettingsViewModel();
+
+      await cashBookVm.init();
+      await settingsVm.init();
+
+      expect(cashBookVm.currentUser.name, equals('You'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () {
+                  UserAccountSetupDialog.show(
+                    ctx,
+                    cashBookViewModel: cashBookVm,
+                    settingsViewModel: settingsVm,
+                  );
+                },
+                child: const Text('Open Setup'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Setup'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('User Account Setup'), findsOneWidget);
+
+      // Find the name text field
+      final nameField = find.widgetWithText(TextFormField, 'Your Full Name *');
+      expect(nameField, findsOneWidget);
+      await tester.enterText(nameField, 'Vikram');
+
+      // Find phone field
+      final phoneField = find.widgetWithText(TextFormField, 'Mobile Number (Optional)');
+      await tester.enterText(phoneField, '9988776655');
+
+      // Find UPI field
+      final upiField = find.widgetWithText(TextFormField, 'UPI ID / Payment Handle (Optional)');
+      await tester.enterText(upiField, 'vikram@okhdfc');
+
+      await tester.pump();
+
+      // Tap Save Changes
+      final saveBtn = find.text('Save Changes');
+      expect(saveBtn, findsOneWidget);
+      await tester.ensureVisible(saveBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(saveBtn);
+      await tester.pumpAndSettle();
+
+      // Verify currentUser updated
+      expect(cashBookVm.currentUser.name, equals('Vikram'));
+      expect(cashBookVm.currentUser.phoneNumber, equals('9988776655'));
+      expect(cashBookVm.currentUser.upiId, equals('vikram@okhdfc'));
+
+      // Verify SettingsViewModel updated
+      expect(settingsVm.settings.userName, equals('Vikram'));
+      expect(settingsVm.settings.userPhone, equals('9988776655'));
+      expect(settingsVm.settings.userUpiId, equals('vikram@okhdfc'));
+      expect(settingsVm.settings.hasCompletedAccountSetup, isTrue);
+    });
   });
 }
+

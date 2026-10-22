@@ -6,25 +6,28 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../models/app_settings.dart';
 import '../models/category_model.dart';
 import '../models/person_model.dart';
 import '../models/settlement_model.dart';
 import '../models/split_expense_model.dart';
 import '../models/split_group_model.dart';
 import '../models/transaction_model.dart';
+import '../../config/app_constants.dart';
+import '../../ui/utils/formatters.dart';
 
 class CashBookDatabaseService {
-  static const String _dbName = 'cash_book.db';
-  static const int _dbVersion = 2;
+  static const String _dbName = AppConstants.dbName;
+  static const int _dbVersion = AppConstants.dbVersion;
 
-  static const String tableCategories = 'categories';
-  static const String tableTransactions = 'transactions';
-  static const String tablePersons = 'persons';
-  static const String tableGroups = 'split_groups';
-  static const String tableGroupMembers = 'split_group_members';
-  static const String tableSplitExpenses = 'split_expenses';
-  static const String tableExpenseSplits = 'expense_splits';
-  static const String tableSettlements = 'settlements';
+  static const String tableCategories = AppConstants.tableCategories;
+  static const String tableTransactions = AppConstants.tableTransactions;
+  static const String tablePersons = AppConstants.tablePersons;
+  static const String tableGroups = AppConstants.tableGroups;
+  static const String tableGroupMembers = AppConstants.tableGroupMembers;
+  static const String tableSplitExpenses = AppConstants.tableSplitExpenses;
+  static const String tableExpenseSplits = AppConstants.tableExpenseSplits;
+  static const String tableSettlements = AppConstants.tableSettlements;
 
   Database? _db;
   final String? customDbPath;
@@ -74,11 +77,26 @@ class CashBookDatabaseService {
           await _createSplitTables(db);
           await _seedDefaultPersons(db);
         }
+        if (oldVersion < 3) {
+          await _ensureBaseInrColumns(db);
+          await _healAndBackfillBaseInrAmounts(db);
+        }
       },
       onOpen: (db) async {
+        await _ensurePersonColumns(db);
+        await _ensureBaseInrColumns(db);
+        await _ensureAttachmentColumns(db);
+        await _healAndBackfillBaseInrAmounts(db);
         await _cleanupOrphanData(db);
       },
     );
+  }
+
+  @visibleForTesting
+  Future<void> onDatabaseOpenForTest(Database db) async {
+    await _ensureBaseInrColumns(db);
+    await _ensureAttachmentColumns(db);
+    await _healAndBackfillBaseInrAmounts(db);
   }
 
   Future<void> _createTables(Database db) async {
@@ -99,11 +117,13 @@ class CashBookDatabaseService {
       CREATE TABLE IF NOT EXISTS $tableTransactions (
         id TEXT PRIMARY KEY,
         amount REAL NOT NULL,
+        base_inr_amount REAL,
         type TEXT NOT NULL,
         category_id TEXT NOT NULL,
         date TEXT NOT NULL,
         title TEXT,
-        payment_mode TEXT NOT NULL DEFAULT 'Cash'
+        payment_mode TEXT NOT NULL DEFAULT 'Cash',
+        attachment_path TEXT
       )
     ''');
 
@@ -124,6 +144,7 @@ class CashBookDatabaseService {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         phone_number TEXT,
+        upi_id TEXT,
         color_value INTEGER NOT NULL,
         is_current_user INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
@@ -154,6 +175,7 @@ class CashBookDatabaseService {
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         total_amount REAL NOT NULL,
+        base_inr_amount REAL,
         date TEXT NOT NULL,
         paid_by_person_id TEXT NOT NULL,
         group_id TEXT,
@@ -171,6 +193,7 @@ class CashBookDatabaseService {
         expense_id TEXT NOT NULL,
         person_id TEXT NOT NULL,
         amount REAL NOT NULL,
+        base_inr_amount REAL,
         percentage REAL,
         shares INTEGER
       )
@@ -182,6 +205,7 @@ class CashBookDatabaseService {
         payer_id TEXT NOT NULL,
         receiver_id TEXT NOT NULL,
         amount REAL NOT NULL,
+        base_inr_amount REAL,
         date TEXT NOT NULL,
         group_id TEXT,
         payment_method TEXT NOT NULL DEFAULT 'UPI',
@@ -203,6 +227,227 @@ class CashBookDatabaseService {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_settlements_date ON $tableSettlements(date DESC)',
     );
+  }
+
+  Future<void> _ensurePersonColumns(Database db) async {
+    try {
+      final info = await db.rawQuery('PRAGMA table_info($tablePersons)');
+      final hasUpi = info.any((col) => col['name'] == 'upi_id');
+      if (!hasUpi) {
+        await db.execute('ALTER TABLE $tablePersons ADD COLUMN upi_id TEXT');
+      }
+    } catch (e) {
+      debugPrint('Error ensuring upi_id on $tablePersons: $e');
+    }
+  }
+
+  Future<void> _ensureAttachmentColumns(Database db) async {
+    try {
+      final info = await db.rawQuery('PRAGMA table_info($tableTransactions)');
+      final hasAttachment = info.any((col) => col['name'] == 'attachment_path');
+      if (!hasAttachment) {
+        await db.execute('ALTER TABLE $tableTransactions ADD COLUMN attachment_path TEXT');
+      }
+    } catch (e) {
+      debugPrint('Error ensuring attachment_path on $tableTransactions: $e');
+    }
+  }
+
+  Future<void> _ensureBaseInrColumns(Database db) async {
+    final tables = [
+      tableTransactions,
+      tableSplitExpenses,
+      tableExpenseSplits,
+      tableSettlements,
+    ];
+    for (final tbl in tables) {
+      try {
+        final info = await db.rawQuery('PRAGMA table_info($tbl)');
+        final hasBaseInr = info.any((col) => col['name'] == 'base_inr_amount');
+        if (!hasBaseInr) {
+          await db.execute('ALTER TABLE $tbl ADD COLUMN base_inr_amount REAL');
+        }
+      } catch (e) {
+        debugPrint('Error ensuring base_inr_amount on $tbl: $e');
+      }
+    }
+  }
+
+  Future<void> _healAndBackfillBaseInrAmounts(Database db) async {
+    try {
+      String currentCode = AppFormatters.currencyCode;
+      Map<String, double>? customRates;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final jsonStr = prefs.getString(AppConstants.keySettings);
+        if (jsonStr != null && jsonStr.isNotEmpty) {
+          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+          currentCode =
+              (decoded['currencyCode'] as String?)?.toUpperCase() ?? currentCode;
+          if (decoded['customExchangeRates'] != null) {
+            customRates =
+                (decoded['customExchangeRates'] as Map<String, dynamic>)
+                    .map((k, v) => MapEntry(k, (v as num).toDouble()));
+          }
+        }
+      } catch (_) {
+        // Fallback to in-memory AppFormatters.currencyCode if SharedPreferences is unavailable
+      }
+
+      final rateToInr = customRates?[currentCode] ??
+          CurrencyConversionHelper.defaultRatesToInr[currentCode] ??
+          1.0;
+
+      // 1. Transactions
+      final txRows = await db.query(tableTransactions);
+      for (final row in txRows) {
+        final id = row['id'] as String;
+        final currentAmount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (baseInr == null) {
+          if (currentCode == 'INR') {
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              currentAmount,
+              ratesToInr: customRates,
+            );
+          } else {
+            final convertedToInr = currentAmount * rateToInr;
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              convertedToInr,
+              ratesToInr: customRates,
+            );
+          }
+        } else {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr,
+            ratesToInr: customRates,
+          );
+        }
+
+        if (currentAmount != baseInr || (row['base_inr_amount'] as num?)?.toDouble() != baseInr) {
+          await db.update(
+            tableTransactions,
+            {'amount': baseInr, 'base_inr_amount': baseInr},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 2. Split Expenses
+      final expRows = await db.query(tableSplitExpenses);
+      for (final row in expRows) {
+        final id = row['id'] as String;
+        final totalAmount = (row['total_amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (baseInr == null) {
+          if (currentCode == 'INR') {
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              totalAmount,
+              ratesToInr: customRates,
+            );
+          } else {
+            final convertedToInr = totalAmount * rateToInr;
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              convertedToInr,
+              ratesToInr: customRates,
+            );
+          }
+        } else {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr,
+            ratesToInr: customRates,
+          );
+        }
+
+        if (totalAmount != baseInr || (row['base_inr_amount'] as num?)?.toDouble() != baseInr) {
+          await db.update(
+            tableSplitExpenses,
+            {'total_amount': baseInr, 'base_inr_amount': baseInr},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 3. Expense Splits
+      final splitRows = await db.query(tableExpenseSplits);
+      for (final row in splitRows) {
+        final id = row['id'] as String;
+        final amount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (baseInr == null) {
+          if (currentCode == 'INR') {
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              amount,
+              ratesToInr: customRates,
+            );
+          } else {
+            final convertedToInr = amount * rateToInr;
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              convertedToInr,
+              ratesToInr: customRates,
+            );
+          }
+        } else {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr,
+            ratesToInr: customRates,
+          );
+        }
+
+        if (amount != baseInr || (row['base_inr_amount'] as num?)?.toDouble() != baseInr) {
+          await db.update(
+            tableExpenseSplits,
+            {'amount': baseInr, 'base_inr_amount': baseInr},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 4. Settlements
+      final settleRows = await db.query(tableSettlements);
+      for (final row in settleRows) {
+        final id = row['id'] as String;
+        final amount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (baseInr == null) {
+          if (currentCode == 'INR') {
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              amount,
+              ratesToInr: customRates,
+            );
+          } else {
+            final convertedToInr = amount * rateToInr;
+            baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+              convertedToInr,
+              ratesToInr: customRates,
+            );
+          }
+        } else {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr,
+            ratesToInr: customRates,
+          );
+        }
+
+        if (amount != baseInr || (row['base_inr_amount'] as num?)?.toDouble() != baseInr) {
+          await db.update(
+            tableSettlements,
+            {'amount': baseInr, 'base_inr_amount': baseInr},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error healing and backfilling base INR amounts: $e');
+    }
   }
 
   Future<void> _seedDefaultCategories(Database db) async {
@@ -280,6 +525,7 @@ class CashBookDatabaseService {
         id: 'exp_sample_1',
         title: 'Dinner & Drinks',
         totalAmount: 1500.0,
+        baseInrAmount: 1500.0,
         date: now.subtract(const Duration(days: 2)),
         paidByPersonId: you.id,
         groupId: sampleGroup.id,
@@ -295,18 +541,21 @@ class CashBookDatabaseService {
         'expense_id': sampleExp.id,
         'person_id': you.id,
         'amount': 500.0,
+        'base_inr_amount': 500.0,
       });
       batch.insert(tableExpenseSplits, {
         'id': 'split_1_2',
         'expense_id': sampleExp.id,
         'person_id': rahul.id,
         'amount': 500.0,
+        'base_inr_amount': 500.0,
       });
       batch.insert(tableExpenseSplits, {
         'id': 'split_1_3',
         'expense_id': sampleExp.id,
         'person_id': sneha.id,
         'amount': 500.0,
+        'base_inr_amount': 500.0,
       });
 
       await batch.commit(noResult: true);
@@ -317,8 +566,8 @@ class CashBookDatabaseService {
   Future<void> migrateFromSharedPreferencesIfApplicable() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final String? categoriesJson = prefs.getString('cash_book_categories_v1');
-      final String? transactionsJson = prefs.getString('cash_book_transactions_v1');
+      final String? categoriesJson = prefs.getString(AppConstants.keyCategoriesLegacy);
+      final String? transactionsJson = prefs.getString(AppConstants.keyTransactionsLegacy);
 
       if (transactionsJson != null && transactionsJson.isNotEmpty) {
         final db = await database;
@@ -423,8 +672,9 @@ class CashBookDatabaseService {
     final cat = CategoryModel.fromSqliteMap(existing.first);
     if (cat.isDefault) return false;
 
-    final fallbackCatId =
-        cat.type.name == 'income' ? 'inc_other' : 'exp_other';
+    final fallbackCatId = cat.type.name == 'income'
+        ? AppConstants.fallbackIncomeCategoryId
+        : AppConstants.fallbackExpenseCategoryId;
 
     await db.transaction((txn) async {
       await txn.update(
@@ -468,18 +718,36 @@ class CashBookDatabaseService {
 
   Future<void> insertTransaction(TransactionModel transaction) async {
     final db = await database;
+    final map = transaction.toSqliteMap();
+    if (map['base_inr_amount'] == null) {
+      final currentCode = AppFormatters.currencyCode;
+      map['base_inr_amount'] = CurrencyConversionHelper.convert(
+        transaction.amount,
+        fromCode: currentCode,
+        toCode: 'INR',
+      );
+    }
     await db.insert(
       tableTransactions,
-      transaction.toSqliteMap(),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   Future<void> updateTransaction(TransactionModel transaction) async {
     final db = await database;
+    final map = transaction.toSqliteMap();
+    if (map['base_inr_amount'] == null) {
+      final currentCode = AppFormatters.currencyCode;
+      map['base_inr_amount'] = CurrencyConversionHelper.convert(
+        transaction.amount,
+        fromCode: currentCode,
+        toCode: 'INR',
+      );
+    }
     await db.update(
       tableTransactions,
-      transaction.toSqliteMap(),
+      map,
       where: 'id = ?',
       whereArgs: [transaction.id],
     );
@@ -722,18 +990,35 @@ class CashBookDatabaseService {
 
   Future<void> insertSplitExpense(SplitExpenseModel expense) async {
     final db = await database;
+    final map = expense.toSqliteMap();
+    final currentCode = AppFormatters.currencyCode;
+    if (map['base_inr_amount'] == null) {
+      map['base_inr_amount'] = CurrencyConversionHelper.convert(
+        expense.totalAmount,
+        fromCode: currentCode,
+        toCode: 'INR',
+      );
+    }
     await db.transaction((txn) async {
       await txn.insert(
         tableSplitExpenses,
-        expense.toSqliteMap(),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       for (int i = 0; i < expense.splits.length; i++) {
         final split = expense.splits[i];
         final splitId = '${expense.id}_split_$i';
+        final splitMap = split.toSqliteMap(expense.id, splitId);
+        if (splitMap['base_inr_amount'] == null) {
+          splitMap['base_inr_amount'] = CurrencyConversionHelper.convert(
+            split.amount,
+            fromCode: currentCode,
+            toCode: 'INR',
+          );
+        }
         await txn.insert(
           tableExpenseSplits,
-          split.toSqliteMap(expense.id, splitId),
+          splitMap,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -742,10 +1027,19 @@ class CashBookDatabaseService {
 
   Future<void> updateSplitExpense(SplitExpenseModel expense) async {
     final db = await database;
+    final map = expense.toSqliteMap();
+    final currentCode = AppFormatters.currencyCode;
+    if (map['base_inr_amount'] == null) {
+      map['base_inr_amount'] = CurrencyConversionHelper.convert(
+        expense.totalAmount,
+        fromCode: currentCode,
+        toCode: 'INR',
+      );
+    }
     await db.transaction((txn) async {
       await txn.update(
         tableSplitExpenses,
-        expense.toSqliteMap(),
+        map,
         where: 'id = ?',
         whereArgs: [expense.id],
       );
@@ -757,9 +1051,17 @@ class CashBookDatabaseService {
       for (int i = 0; i < expense.splits.length; i++) {
         final split = expense.splits[i];
         final splitId = '${expense.id}_split_$i';
+        final splitMap = split.toSqliteMap(expense.id, splitId);
+        if (splitMap['base_inr_amount'] == null) {
+          splitMap['base_inr_amount'] = CurrencyConversionHelper.convert(
+            split.amount,
+            fromCode: currentCode,
+            toCode: 'INR',
+          );
+        }
         await txn.insert(
           tableExpenseSplits,
-          split.toSqliteMap(expense.id, splitId),
+          splitMap,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -810,9 +1112,18 @@ class CashBookDatabaseService {
 
   Future<void> insertSettlement(SettlementModel settlement) async {
     final db = await database;
+    final map = settlement.toSqliteMap();
+    if (map['base_inr_amount'] == null) {
+      final currentCode = AppFormatters.currencyCode;
+      map['base_inr_amount'] = CurrencyConversionHelper.convert(
+        settlement.amount,
+        fromCode: currentCode,
+        toCode: 'INR',
+      );
+    }
     await db.insert(
       tableSettlements,
-      settlement.toSqliteMap(),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -908,4 +1219,215 @@ class CashBookDatabaseService {
       debugPrint('Error cleaning orphan data: $e');
     }
   }
+
+  /// Converts all monetary amounts in the database using [conversionFactor].
+  /// Preserves canonical base INR amounts so that switching between currencies
+  /// (e.g. INR -> USD -> INR) is completely lossless and prevents fractional point drift.
+  Future<void> convertAllCurrencyAmounts(
+    double conversionFactor, {
+    String? fromCurrency,
+    String? toCurrency,
+    Map<String, double>? ratesToInr,
+  }) async {
+    final db = await database;
+    final targetCode = toCurrency?.toUpperCase() ??
+        ((conversionFactor >= 50.0 ||
+                (conversionFactor - 86.50).abs() < 1.0 ||
+                (conversionFactor - 94.00).abs() < 1.0)
+            ? 'INR'
+            : 'USD');
+    final isTargetInr = targetCode == 'INR';
+    final isSourceInr = fromCurrency?.toUpperCase() == 'INR';
+
+    await db.transaction((txn) async {
+      // 1. Transactions
+      final txRows = await txn.query(tableTransactions);
+      for (final row in txRows) {
+        final id = row['id'] as String;
+        final currentAmount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (isSourceInr || (baseInr == null && !isTargetInr)) {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr ?? currentAmount,
+            ratesToInr: ratesToInr,
+          );
+        }
+
+        double newAmount;
+        if (isTargetInr) {
+          if (baseInr != null && baseInr > 0) {
+            newAmount = baseInr;
+          } else {
+            final raw = currentAmount * conversionFactor;
+            newAmount = CurrencyConversionHelper.recoverDriftedInrAmount(
+              raw,
+              ratesToInr: ratesToInr,
+            );
+            baseInr = newAmount;
+          }
+        } else {
+          final effectiveBase = baseInr ?? currentAmount;
+          newAmount = double.parse(
+            CurrencyConversionHelper.convert(
+              effectiveBase,
+              fromCode: 'INR',
+              toCode: targetCode,
+              ratesToInr: ratesToInr,
+            ).toStringAsFixed(2),
+          );
+          baseInr = effectiveBase;
+        }
+
+        await txn.update(
+          tableTransactions,
+          {'amount': newAmount, 'base_inr_amount': baseInr},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+
+      // 2. Split Expenses
+      final splitExpRows = await txn.query(tableSplitExpenses);
+      for (final row in splitExpRows) {
+        final id = row['id'] as String;
+        final currentAmount = (row['total_amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (isSourceInr || (baseInr == null && !isTargetInr)) {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr ?? currentAmount,
+            ratesToInr: ratesToInr,
+          );
+        }
+
+        double newAmount;
+        if (isTargetInr) {
+          if (baseInr != null && baseInr > 0) {
+            newAmount = baseInr;
+          } else {
+            final raw = currentAmount * conversionFactor;
+            newAmount = CurrencyConversionHelper.recoverDriftedInrAmount(
+              raw,
+              ratesToInr: ratesToInr,
+            );
+            baseInr = newAmount;
+          }
+        } else {
+          final effectiveBase = baseInr ?? currentAmount;
+          newAmount = double.parse(
+            CurrencyConversionHelper.convert(
+              effectiveBase,
+              fromCode: 'INR',
+              toCode: targetCode,
+              ratesToInr: ratesToInr,
+            ).toStringAsFixed(2),
+          );
+          baseInr = effectiveBase;
+        }
+
+        await txn.update(
+          tableSplitExpenses,
+          {'total_amount': newAmount, 'base_inr_amount': baseInr},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+
+      // 3. Expense Splits
+      final splitRows = await txn.query(tableExpenseSplits);
+      for (final row in splitRows) {
+        final id = row['id'] as String;
+        final currentAmount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (isSourceInr || (baseInr == null && !isTargetInr)) {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr ?? currentAmount,
+            ratesToInr: ratesToInr,
+          );
+        }
+
+        double newAmount;
+        if (isTargetInr) {
+          if (baseInr != null && baseInr > 0) {
+            newAmount = baseInr;
+          } else {
+            final raw = currentAmount * conversionFactor;
+            newAmount = CurrencyConversionHelper.recoverDriftedInrAmount(
+              raw,
+              ratesToInr: ratesToInr,
+            );
+            baseInr = newAmount;
+          }
+        } else {
+          final effectiveBase = baseInr ?? currentAmount;
+          newAmount = double.parse(
+            CurrencyConversionHelper.convert(
+              effectiveBase,
+              fromCode: 'INR',
+              toCode: targetCode,
+              ratesToInr: ratesToInr,
+            ).toStringAsFixed(2),
+          );
+          baseInr = effectiveBase;
+        }
+
+        await txn.update(
+          tableExpenseSplits,
+          {'amount': newAmount, 'base_inr_amount': baseInr},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+
+      // 4. Settlements
+      final settleRows = await txn.query(tableSettlements);
+      for (final row in settleRows) {
+        final id = row['id'] as String;
+        final currentAmount = (row['amount'] as num).toDouble();
+        double? baseInr = (row['base_inr_amount'] as num?)?.toDouble();
+
+        if (isSourceInr || (baseInr == null && !isTargetInr)) {
+          baseInr = CurrencyConversionHelper.recoverDriftedInrAmount(
+            baseInr ?? currentAmount,
+            ratesToInr: ratesToInr,
+          );
+        }
+
+        double newAmount;
+        if (isTargetInr) {
+          if (baseInr != null && baseInr > 0) {
+            newAmount = baseInr;
+          } else {
+            final raw = currentAmount * conversionFactor;
+            newAmount = CurrencyConversionHelper.recoverDriftedInrAmount(
+              raw,
+              ratesToInr: ratesToInr,
+            );
+            baseInr = newAmount;
+          }
+        } else {
+          final effectiveBase = baseInr ?? currentAmount;
+          newAmount = double.parse(
+            CurrencyConversionHelper.convert(
+              effectiveBase,
+              fromCode: 'INR',
+              toCode: targetCode,
+              ratesToInr: ratesToInr,
+            ).toStringAsFixed(2),
+          );
+          baseInr = effectiveBase;
+        }
+
+        await txn.update(
+          tableSettlements,
+          {'amount': newAmount, 'base_inr_amount': baseInr},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+  }
 }
+

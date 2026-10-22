@@ -1,46 +1,91 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 
-/// Preset color options for app theming
-class AppColorPreset {
-  final String id;
-  final String name;
-  final Color primaryColor;
-  final String description;
+export '../../config/app_constants.dart'
+    show
+        AppColorPreset,
+        CurrencyOption,
+        DateFormatPreset,
+        TimeFormatPreset;
 
-  const AppColorPreset({
-    required this.id,
-    required this.name,
-    required this.primaryColor,
-    required this.description,
-  });
-}
+/// Currency conversion helper for exchange rates and conversion calculations
+class CurrencyConversionHelper {
+  /// Default exchange rates relative to 1 INR base (INR value per 1 unit of currency)
+  static Map<String, double> get defaultRatesToInr => AppConstants.defaultRatesToInr;
 
-/// Preset currency definitions
-class CurrencyOption {
-  final String code;
-  final String name;
-  final String symbol;
-  final bool defaultIndianGrouping;
-  final int defaultDecimals;
+  /// Converts [amount] from [fromCode] to [toCode] using exchange rates
+  static double convert(
+    double amount, {
+    required String fromCode,
+    required String toCode,
+    Map<String, double>? ratesToInr,
+  }) {
+    if (fromCode.toUpperCase() == toCode.toUpperCase()) return amount;
+    final rates = ratesToInr ?? defaultRatesToInr;
+    final fromRate = rates[fromCode.toUpperCase()] ?? 1.0;
+    final toRate = rates[toCode.toUpperCase()] ?? 1.0;
+    if (toRate == 0) return 0.0;
+    return (amount * fromRate) / toRate;
+  }
 
-  const CurrencyOption({
-    required this.code,
-    required this.name,
-    required this.symbol,
-    this.defaultIndianGrouping = false,
-    this.defaultDecimals = 2,
-  });
-}
+  /// Returns multiplier factor such that: targetAmount = sourceAmount * factor
+  static double getFactor({
+    required String fromCode,
+    required String toCode,
+    Map<String, double>? ratesToInr,
+  }) {
+    if (fromCode.toUpperCase() == toCode.toUpperCase()) return 1.0;
+    final rates = ratesToInr ?? defaultRatesToInr;
+    final fromRate = rates[fromCode.toUpperCase()] ?? 1.0;
+    final toRate = rates[toCode.toUpperCase()] ?? 1.0;
+    if (toRate == 0) return 1.0;
+    return fromRate / toRate;
+  }
 
-/// Preset date format definitions
-class DateFormatPreset {
-  final String pattern;
-  final String label;
+  /// Recovers original canonical INR value from potential floating point
+  /// and intermediate 2-decimal foreign conversion drift (e.g. 999.94 -> 1000.0,
+  /// 499.97 -> 500.0, 100.34 -> 100.0).
+  static double recoverDriftedInrAmount(
+    double currentAmount, {
+    Map<String, double>? ratesToInr,
+  }) {
+    if (currentAmount <= 0) return currentAmount;
+    final candidateInt = currentAmount.roundToDouble();
+    final diffFromInt = (currentAmount - candidateInt).abs();
+    if (diffFromInt < 0.0001) {
+      return candidateInt;
+    }
 
-  const DateFormatPreset({
-    required this.pattern,
-    required this.label,
-  });
+    final rates = <double>{
+      defaultRatesToInr['USD'] ?? AppConstants.defaultUsdRate,
+      defaultRatesToInr['EUR'] ?? AppConstants.defaultEurRate,
+      if (ratesToInr != null)
+        ...ratesToInr.values.where((r) => r > 1.0),
+    };
+
+    // 1. Check if candidate integer was converted to foreign and back
+    for (final rate in rates) {
+      final foreign = double.parse((candidateInt / rate).toStringAsFixed(2));
+      final reconstructed = double.parse((foreign * rate).toStringAsFixed(2));
+      if ((reconstructed - currentAmount).abs() <= 0.05) {
+        return candidateInt;
+      }
+    }
+
+    // 2. Check if candidate half (e.g. 10.50, 25.50) was converted to foreign and back
+    final candidateHalf = (currentAmount * 2).roundToDouble() / 2;
+    if ((currentAmount - candidateHalf).abs() > 0.0001) {
+      for (final rate in rates) {
+        final foreign = double.parse((candidateHalf / rate).toStringAsFixed(2));
+        final reconstructed = double.parse((foreign * rate).toStringAsFixed(2));
+        if ((reconstructed - currentAmount).abs() <= 0.05) {
+          return candidateHalf;
+        }
+      }
+    }
+
+    return double.parse(currentAmount.toStringAsFixed(2));
+  }
 }
 
 class AppSettings {
@@ -48,205 +93,65 @@ class AppSettings {
   final int primaryColorValue;
   final ThemeMode themeMode;
 
-  // Typography
+  // Typography - 4 necessary fonts
   final String fontFamily;
   final double fontScale; // 0.85 to 1.40
 
-  // Currency
+  // Currency - 3 formats with conversion, INR is default
   final String currencyCode;
   final String currencySymbol;
   final bool symbolBeforeAmount;
   final int decimalDigits;
   final bool useIndianGrouping;
+  final Map<String, double> customExchangeRates;
 
-  // Date & Time
+  // Date & Time - 4 formats each
   final String dateFormatPattern;
+  final String timeFormatPattern;
   final bool is24HourTime;
 
+  // User Profile & Account
+  final String userName;
+  final String? userPhone;
+  final String? userUpiId;
+  final bool hasCompletedAccountSetup;
+
   const AppSettings({
-    this.primaryColorValue = 0xFF1E40AF, // Sapphire Indigo
+    this.primaryColorValue = AppConstants.defaultPrimaryColorValue, // Sapphire Indigo
     this.themeMode = ThemeMode.light,
-    this.fontFamily = 'Inter',
-    this.fontScale = 1.0,
-    this.currencyCode = 'INR',
-    this.currencySymbol = '₹',
-    this.symbolBeforeAmount = true,
-    this.decimalDigits = 2,
-    this.useIndianGrouping = true,
-    this.dateFormatPattern = 'dd MMM yyyy',
-    this.is24HourTime = false,
+    this.fontFamily = AppConstants.defaultFontFamily,
+    this.fontScale = AppConstants.defaultFontScale,
+    this.currencyCode = AppConstants.defaultCurrencyCode,
+    this.currencySymbol = AppConstants.defaultCurrencySymbol,
+    this.symbolBeforeAmount = AppConstants.defaultSymbolBeforeAmount,
+    this.decimalDigits = AppConstants.defaultDecimalDigits,
+    this.useIndianGrouping = AppConstants.defaultIndianGrouping,
+    this.customExchangeRates = AppConstants.defaultRatesToInr,
+    this.dateFormatPattern = AppConstants.defaultDateFormat,
+    this.timeFormatPattern = AppConstants.defaultTimeFormat,
+    this.is24HourTime = AppConstants.defaultIs24HourTime,
+    this.userName = AppConstants.defaultCurrentUserName,
+    this.userPhone,
+    this.userUpiId,
+    this.hasCompletedAccountSetup = AppConstants.defaultAccountSetupCompleted,
   });
 
   Color get primaryColor => Color(primaryColorValue);
 
   // Available Color Presets
-  static const List<AppColorPreset> colorPresets = [
-    AppColorPreset(
-      id: 'sapphire',
-      name: 'Sapphire Indigo',
-      primaryColor: Color(0xFF1E40AF),
-      description: 'Modern corporate indigo blue',
-    ),
-    AppColorPreset(
-      id: 'emerald',
-      name: 'Emerald Green',
-      primaryColor: Color(0xFF059669),
-      description: 'Vibrant wealth & growth green',
-    ),
-    AppColorPreset(
-      id: 'royal_violet',
-      name: 'Royal Violet',
-      primaryColor: Color(0xFF7C3AED),
-      description: 'Fintech purple & royalty',
-    ),
-    AppColorPreset(
-      id: 'crimson_rose',
-      name: 'Crimson Rose',
-      primaryColor: Color(0xFFE11D48),
-      description: 'Bold expressive crimson rose',
-    ),
-    AppColorPreset(
-      id: 'amber_sunset',
-      name: 'Sunset Amber',
-      primaryColor: Color(0xFFD97706),
-      description: 'Warm gold & autumn amber',
-    ),
-    AppColorPreset(
-      id: 'teal_ocean',
-      name: 'Ocean Teal',
-      primaryColor: Color(0xFF0D9488),
-      description: 'Calm refreshing oceanic teal',
-    ),
-    AppColorPreset(
-      id: 'slate_tech',
-      name: 'Slate Tech',
-      primaryColor: Color(0xFF334155),
-      description: 'Minimal slate & obsidian',
-    ),
-    AppColorPreset(
-      id: 'cyan_sky',
-      name: 'Electric Cyan',
-      primaryColor: Color(0xFF0284C7),
-      description: 'Vivid futuristic sky cyan',
-    ),
-  ];
+  static List<AppColorPreset> get colorPresets => AppConstants.colorPresets;
 
-  // Available Font Presets
-  static const List<String> fontPresets = [
-    'System',
-    'Inter',
-    'Roboto',
-    'Poppins',
-    'Outfit',
-    'Lato',
-    'JetBrains Mono',
-    'Merriweather',
-  ];
+  // Available Font Presets - exactly 4 necessary fonts
+  static List<String> get fontPresets => AppConstants.fontPresets;
 
-  // Available Currencies
-  static const List<CurrencyOption> presetCurrencies = [
-    CurrencyOption(
-      code: 'INR',
-      name: 'Indian Rupee',
-      symbol: '₹',
-      defaultIndianGrouping: true,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'USD',
-      name: 'US Dollar',
-      symbol: '\$',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'EUR',
-      name: 'Euro',
-      symbol: '€',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'GBP',
-      name: 'British Pound',
-      symbol: '£',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'JPY',
-      name: 'Japanese Yen',
-      symbol: '¥',
-      defaultIndianGrouping: false,
-      defaultDecimals: 0,
-    ),
-    CurrencyOption(
-      code: 'AUD',
-      name: 'Australian Dollar',
-      symbol: 'A\$',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'CAD',
-      name: 'Canadian Dollar',
-      symbol: 'C\$',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'AED',
-      name: 'UAE Dirham',
-      symbol: 'AED',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'SGD',
-      name: 'Singapore Dollar',
-      symbol: 'S\$',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'SAR',
-      name: 'Saudi Riyal',
-      symbol: 'SAR',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'CHF',
-      name: 'Swiss Franc',
-      symbol: 'CHF',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'CNY',
-      name: 'Chinese Yuan',
-      symbol: '¥',
-      defaultIndianGrouping: false,
-      defaultDecimals: 2,
-    ),
-    CurrencyOption(
-      code: 'KRW',
-      name: 'South Korean Won',
-      symbol: '₩',
-      defaultIndianGrouping: false,
-      defaultDecimals: 0,
-    ),
-  ];
+  // Available Currencies - exactly 3 formats with conversion, INR is default
+  static List<CurrencyOption> get presetCurrencies => AppConstants.presetCurrencies;
 
-  // Available Date Format Presets
-  static const List<DateFormatPreset> dateFormatPresets = [
-    DateFormatPreset(pattern: 'dd MMM yyyy', label: '06 Oct 2026 (Default)'),
-    DateFormatPreset(pattern: 'dd/MM/yyyy', label: '06/10/2026 (DD/MM/YYYY)'),
-    DateFormatPreset(pattern: 'MM/dd/yyyy', label: '10/06/2026 (MM/DD/YYYY)'),
-    DateFormatPreset(pattern: 'yyyy-MM-dd', label: '2026-10-06 (YYYY-MM-DD)'),
-    DateFormatPreset(pattern: 'dd MMMM yyyy', label: '06 October 2026 (Full Month)'),
-    DateFormatPreset(pattern: 'EEE, dd MMM yyyy', label: 'Tue, 06 Oct 2026 (With Day)'),
-  ];
+  // Available Date Format Presets - exactly 4 formats
+  static List<DateFormatPreset> get dateFormatPresets => AppConstants.dateFormatPresets;
+
+  // Available Time Format Presets - exactly 4 formats
+  static List<TimeFormatPreset> get timeFormatPresets => AppConstants.timeFormatPresets;
 
   AppSettings copyWith({
     int? primaryColorValue,
@@ -258,9 +163,21 @@ class AppSettings {
     bool? symbolBeforeAmount,
     int? decimalDigits,
     bool? useIndianGrouping,
+    Map<String, double>? customExchangeRates,
     String? dateFormatPattern,
+    String? timeFormatPattern,
     bool? is24HourTime,
+    String? userName,
+    String? userPhone,
+    String? userUpiId,
+    bool? hasCompletedAccountSetup,
   }) {
+    final finalTimePattern = timeFormatPattern ??
+        (is24HourTime != null
+            ? (is24HourTime ? AppConstants.default24HourTimeFormat : AppConstants.defaultTimeFormat)
+            : this.timeFormatPattern);
+    final finalIs24 = is24HourTime ?? finalTimePattern.startsWith('HH');
+
     return AppSettings(
       primaryColorValue: primaryColorValue ?? this.primaryColorValue,
       themeMode: themeMode ?? this.themeMode,
@@ -271,8 +188,14 @@ class AppSettings {
       symbolBeforeAmount: symbolBeforeAmount ?? this.symbolBeforeAmount,
       decimalDigits: decimalDigits ?? this.decimalDigits,
       useIndianGrouping: useIndianGrouping ?? this.useIndianGrouping,
+      customExchangeRates: customExchangeRates ?? this.customExchangeRates,
       dateFormatPattern: dateFormatPattern ?? this.dateFormatPattern,
-      is24HourTime: is24HourTime ?? this.is24HourTime,
+      timeFormatPattern: finalTimePattern,
+      is24HourTime: finalIs24,
+      userName: userName ?? this.userName,
+      userPhone: userPhone ?? this.userPhone,
+      userUpiId: userUpiId ?? this.userUpiId,
+      hasCompletedAccountSetup: hasCompletedAccountSetup ?? this.hasCompletedAccountSetup,
     );
   }
 
@@ -287,8 +210,14 @@ class AppSettings {
       'symbolBeforeAmount': symbolBeforeAmount,
       'decimalDigits': decimalDigits,
       'useIndianGrouping': useIndianGrouping,
+      'customExchangeRates': customExchangeRates,
       'dateFormatPattern': dateFormatPattern,
+      'timeFormatPattern': timeFormatPattern,
       'is24HourTime': is24HourTime,
+      'userName': userName,
+      'userPhone': userPhone,
+      'userUpiId': userUpiId,
+      'hasCompletedAccountSetup': hasCompletedAccountSetup,
     };
   }
 
@@ -306,18 +235,34 @@ class AppSettings {
         parsedThemeMode = ThemeMode.light;
     }
 
+    final is24 = map['is24HourTime'] == true;
+    final timePattern = (map['timeFormatPattern'] as String?) ??
+        (is24 ? AppConstants.default24HourTimeFormat : AppConstants.defaultTimeFormat);
+
+    final rawRates = map['customExchangeRates'];
+    Map<String, double> rates = AppConstants.defaultRatesToInr;
+    if (rawRates is Map) {
+      rates = rawRates.map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
+    }
+
     return AppSettings(
-      primaryColorValue: (map['primaryColorValue'] as num?)?.toInt() ?? 0xFF1E40AF,
+      primaryColorValue: (map['primaryColorValue'] as num?)?.toInt() ?? AppConstants.defaultPrimaryColorValue,
       themeMode: parsedThemeMode,
-      fontFamily: (map['fontFamily'] as String?) ?? 'Inter',
-      fontScale: (map['fontScale'] as num?)?.toDouble() ?? 1.0,
-      currencyCode: (map['currencyCode'] as String?) ?? 'INR',
-      currencySymbol: (map['currencySymbol'] as String?) ?? '₹',
-      symbolBeforeAmount: (map['symbolBeforeAmount'] as bool?) ?? true,
-      decimalDigits: (map['decimalDigits'] as num?)?.toInt() ?? 2,
-      useIndianGrouping: (map['useIndianGrouping'] as bool?) ?? true,
-      dateFormatPattern: (map['dateFormatPattern'] as String?) ?? 'dd MMM yyyy',
-      is24HourTime: map['is24HourTime'] == true,
+      fontFamily: (map['fontFamily'] as String?) ?? AppConstants.defaultFontFamily,
+      fontScale: (map['fontScale'] as num?)?.toDouble() ?? AppConstants.defaultFontScale,
+      currencyCode: (map['currencyCode'] as String?) ?? AppConstants.defaultCurrencyCode,
+      currencySymbol: (map['currencySymbol'] as String?) ?? AppConstants.defaultCurrencySymbol,
+      symbolBeforeAmount: (map['symbolBeforeAmount'] as bool?) ?? AppConstants.defaultSymbolBeforeAmount,
+      decimalDigits: (map['decimalDigits'] as num?)?.toInt() ?? AppConstants.defaultDecimalDigits,
+      useIndianGrouping: (map['useIndianGrouping'] as bool?) ?? AppConstants.defaultIndianGrouping,
+      customExchangeRates: rates,
+      dateFormatPattern: (map['dateFormatPattern'] as String?) ?? AppConstants.defaultDateFormat,
+      timeFormatPattern: timePattern,
+      is24HourTime: timePattern.startsWith('HH') || is24,
+      userName: (map['userName'] as String?) ?? AppConstants.defaultCurrentUserName,
+      userPhone: map['userPhone'] as String?,
+      userUpiId: map['userUpiId'] as String?,
+      hasCompletedAccountSetup: (map['hasCompletedAccountSetup'] as bool?) ?? AppConstants.defaultAccountSetupCompleted,
     );
   }
 }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 
 class PersonModel {
   final String id;
   final String name;
   final String? phoneNumber;
+  final String? upiId;
   final int colorValue;
   final bool isCurrentUser;
   final DateTime createdAt;
@@ -12,6 +14,7 @@ class PersonModel {
     required this.id,
     required this.name,
     this.phoneNumber,
+    this.upiId,
     required this.colorValue,
     this.isCurrentUser = false,
     required this.createdAt,
@@ -33,6 +36,7 @@ class PersonModel {
     String? id,
     String? name,
     String? phoneNumber,
+    String? upiId,
     int? colorValue,
     bool? isCurrentUser,
     DateTime? createdAt,
@@ -41,6 +45,7 @@ class PersonModel {
       id: id ?? this.id,
       name: name ?? this.name,
       phoneNumber: phoneNumber ?? this.phoneNumber,
+      upiId: upiId ?? this.upiId,
       colorValue: colorValue ?? this.colorValue,
       isCurrentUser: isCurrentUser ?? this.isCurrentUser,
       createdAt: createdAt ?? this.createdAt,
@@ -52,6 +57,7 @@ class PersonModel {
       'id': id,
       'name': name,
       'phone_number': phoneNumber,
+      'upi_id': upiId,
       'color_value': colorValue,
       'is_current_user': isCurrentUser ? 1 : 0,
       'created_at': createdAt.toIso8601String(),
@@ -63,20 +69,22 @@ class PersonModel {
       id: map['id'] as String,
       name: map['name'] as String,
       phoneNumber: map['phone_number'] as String?,
+      upiId: map['upi_id'] as String?,
       colorValue: map['color_value'] as int,
       isCurrentUser: (map['is_current_user'] as int? ?? 0) == 1,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
-  static const String currentUserDefaultId = 'person_you';
+  static const String currentUserDefaultId = AppConstants.defaultCurrentUserId;
 
   static PersonModel get defaultCurrentUser => PersonModel(
         id: currentUserDefaultId,
-        name: 'You',
+        name: AppConstants.defaultCurrentUserName,
         phoneNumber: null,
-        colorValue: 0xFF1E88E5,
+        upiId: null,
+        colorValue: AppConstants.defaultCurrentUserColor,
         isCurrentUser: true,
-        createdAt: DateTime(2025, 1, 1),
+        createdAt: AppConstants.defaultCurrentUserCreatedAt,
       );
 }

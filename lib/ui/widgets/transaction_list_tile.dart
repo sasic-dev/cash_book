@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/transaction_model.dart';
 import '../../data/models/transaction_type.dart';
@@ -24,11 +25,11 @@ class TransactionListTile extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final isIncome = transaction.type == TransactionType.income;
     final amountColor = isIncome
-        ? (isDark ? const Color(0xFF4ADE80) : const Color(0xFF15803D))
-        : (isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C));
+        ? (isDark ? AppConstants.incomeDarkText : AppConstants.incomeGreenDark)
+        : (isDark ? AppConstants.expenseDarkText : AppConstants.expenseRedDark);
     final prefix = isIncome ? '+ ' : '- ';
 
-    final catColor = category?.color ?? const Color(0xFF64748B);
+    final catColor = category?.color ?? AppConstants.lightTextSecondary;
     final catIcon = category?.icon ?? Icons.category_rounded;
     final catName = category?.name ?? 'General';
 
@@ -36,14 +37,17 @@ class TransactionListTile extends StatelessWidget {
         ? transaction.title.trim()
         : catName;
 
+    final isCurrentMonth = AppFormatters.isCurrentMonth(transaction.date);
+    final canDelete = onDelete != null && isCurrentMonth;
+
     return Dismissible(
       key: Key(transaction.id),
-      direction: DismissDirection.endToStart,
+      direction: canDelete ? DismissDirection.endToStart : DismissDirection.none,
       background: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        color: const Color(0xFFDC2626),
+        color: AppConstants.expenseRed,
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -71,7 +75,7 @@ class TransactionListTile extends StatelessWidget {
               ),
               FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626),
+                  backgroundColor: AppConstants.expenseRed,
                   shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                 ),
                 onPressed: () => Navigator.of(ctx).pop(true),
@@ -87,16 +91,16 @@ class TransactionListTile extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          color: isDark ? AppConstants.darkCardBg : AppConstants.lightCardBg,
           border: Border.all(
-            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            color: isDark ? AppConstants.darkBorder : AppConstants.lightBorder,
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
               color: isDark
                   ? Colors.black.withValues(alpha: 0.25)
-                  : const Color(0xFF0F172A).withValues(alpha: 0.04),
+                  : AppConstants.darkSurface.withValues(alpha: 0.04),
               blurRadius: 3,
               offset: const Offset(0, 1),
             ),
@@ -184,6 +188,27 @@ class TransactionListTile extends StatelessWidget {
                                 fontSize: 11,
                               ),
                             ),
+                            if (transaction.hasAttachment) ...[
+                              const SizedBox(width: 6),
+                              Tooltip(
+                                message: transaction.isImageAttachment
+                                    ? 'Receipt photo attached'
+                                    : (transaction.isPdfAttachment
+                                        ? 'PDF statement attached'
+                                        : 'Document attached'),
+                                child: Icon(
+                                  transaction.isImageAttachment
+                                      ? Icons.image_outlined
+                                      : (transaction.isPdfAttachment
+                                          ? Icons.picture_as_pdf_outlined
+                                          : Icons.attach_file_rounded),
+                                  size: 13,
+                                  color: isDark
+                                      ? const Color(0xFF60A5FA)
+                                      : const Color(0xFF2563EB),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -205,6 +230,38 @@ class TransactionListTile extends StatelessWidget {
                           letterSpacing: -0.2,
                         ),
                       ),
+                      if (!isCurrentMonth) ...[
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.lock_outline_rounded,
+                                size: 10,
+                                color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Past Month',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],

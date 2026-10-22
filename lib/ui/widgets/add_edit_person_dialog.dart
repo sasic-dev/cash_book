@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/person_model.dart';
 import '../view_models/cash_book_view_model.dart';
 
@@ -35,16 +36,7 @@ class _AddEditPersonDialogState extends State<AddEditPersonDialog> {
   late final TextEditingController _phoneController;
   late int _selectedColor;
 
-  final List<int> _colorPalette = const [
-    0xFF1E88E5, // Blue
-    0xFF43A047, // Green
-    0xFF8E24AA, // Purple
-    0xFFFF8F00, // Amber
-    0xFFE53935, // Red
-    0xFF00897B, // Teal
-    0xFF3949AB, // Indigo
-    0xFFD81B60, // Pink
-  ];
+  final List<int> _colorPalette = AppConstants.personColorPalette;
 
   @override
   void initState() {

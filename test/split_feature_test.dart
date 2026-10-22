@@ -349,8 +349,9 @@ void main() {
     await tester.tap(find.text('Select'));
     await tester.pumpAndSettle();
 
-    // Verify bottom sheet appears with title and list
+    // Verify bottom sheet appears with title, + Friend button, and list
     expect(find.text('Select who paid the upfront expense'), findsOneWidget);
+    expect(find.text('+ Friend'), findsOneWidget);
     expect(find.text('Search person...'), findsOneWidget);
     expect(find.widgetWithText(ListTile, 'Rahul Sharma'), findsOneWidget);
 

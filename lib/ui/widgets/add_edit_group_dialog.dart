@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/person_model.dart';
 import '../../data/models/split_group_model.dart';
 import '../view_models/cash_book_view_model.dart';
@@ -42,70 +43,8 @@ class _AddEditGroupDialogState extends State<AddEditGroupDialog> {
   late IconData _selectedIcon;
   late Set<String> _selectedMemberIds;
 
-  final List<int> _colorPalette = const [
-    0xFF00897B, // Teal
-    0xFF1E88E5, // Blue
-    0xFF8E24AA, // Purple
-    0xFFFF8F00, // Amber
-    0xFFE53935, // Red
-    0xFF43A047, // Green
-    0xFF3949AB, // Indigo
-    0xFF00ACC1, // Cyan
-    0xFFD81B60, // Pink
-    0xFFF4511E, // Deep Orange
-    0xFF5E35B1, // Deep Purple
-    0xFF546E7A, // Blue Grey
-  ];
-
-  final List<IconData> _iconList = const [
-    // Social & Friends
-    Icons.groups_rounded,
-    Icons.diversity_3_rounded,
-    Icons.diversity_1_rounded,
-    Icons.family_restroom_rounded,
-    Icons.work_rounded,
-    Icons.school_rounded,
-
-    // Travel & Trips
-    Icons.flight_takeoff_rounded,
-    Icons.directions_car_rounded,
-    Icons.hiking_rounded,
-    Icons.beach_access_rounded,
-    Icons.two_wheeler_rounded,
-    Icons.train_rounded,
-    Icons.hotel_rounded,
-    Icons.luggage_rounded,
-
-    // Living & Flatmates
-    Icons.home_rounded,
-    Icons.apartment_rounded,
-    Icons.king_bed_rounded,
-    Icons.chair_rounded,
-    Icons.wifi_rounded,
-    Icons.electric_bolt_rounded,
-
-    // Food, Drinks & Dining
-    Icons.restaurant_rounded,
-    Icons.local_cafe_rounded,
-    Icons.local_bar_rounded,
-    Icons.local_pizza_rounded,
-    Icons.fastfood_rounded,
-
-    // Fun, Entertainment & Sports
-    Icons.celebration_rounded,
-    Icons.movie_rounded,
-    Icons.sports_esports_rounded,
-    Icons.sports_soccer_rounded,
-    Icons.fitness_center_rounded,
-    Icons.card_giftcard_rounded,
-
-    // Shopping & Money
-    Icons.shopping_bag_rounded,
-    Icons.shopping_cart_rounded,
-    Icons.receipt_long_rounded,
-    Icons.savings_rounded,
-    Icons.account_balance_wallet_rounded,
-  ];
+  final List<int> _colorPalette = AppConstants.groupColorPalette;
+  final List<IconData> _iconList = AppConstants.groupIcons;
 
   @override
   void initState() {

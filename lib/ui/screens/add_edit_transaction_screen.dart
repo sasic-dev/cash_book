@@ -1,12 +1,14 @@
 // ignore_for_file: non_const_argument_for_const_parameter
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/transaction_model.dart';
 import '../../data/models/transaction_type.dart';
 import '../utils/formatters.dart';
 import '../view_models/cash_book_view_model.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/attachment_picker_box.dart';
 import '../widgets/category_icon_picker_dialog.dart';
 
 class AddEditTransactionScreen extends StatefulWidget {
@@ -34,15 +36,10 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
   late DateTime _selectedDate;
   late TimeOfDay _selectedTime;
   String? _selectedCategoryId;
-  String _selectedPaymentMode = 'Cash';
+  String _selectedPaymentMode = AppConstants.defaultPaymentMode;
+  String? _attachmentPath;
 
-  final List<String> _paymentModes = const [
-    'Cash',
-    'Online / UPI',
-    'Card',
-    'Bank Transfer',
-    'Cheque',
-  ];
+  final List<String> _paymentModes = AppConstants.paymentModes;
 
   @override
   void initState() {
@@ -50,19 +47,22 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
     final tx = widget.initialTransaction;
     if (tx != null) {
       _type = tx.type;
+      final displayAmt = AppFormatters.toDisplayAmount(tx.amount);
       _amountController = TextEditingController(
-          text: tx.amount.toStringAsFixed(tx.amount.truncateToDouble() == tx.amount ? 0 : 2));
+          text: displayAmt.toStringAsFixed(displayAmt.truncateToDouble() == displayAmt ? 0 : 2));
       _titleController = TextEditingController(text: tx.title);
       _selectedDate = tx.date;
       _selectedTime = TimeOfDay.fromDateTime(tx.date);
       _selectedCategoryId = tx.categoryId;
       _selectedPaymentMode = tx.paymentMode;
+      _attachmentPath = tx.attachmentPath;
     } else {
       _type = widget.initialType ?? TransactionType.expense;
       _amountController = TextEditingController();
       _titleController = TextEditingController();
       _selectedDate = DateTime.now();
       _selectedTime = TimeOfDay.now();
+      _attachmentPath = null;
       _setDefaultCategoryForType(_type);
     }
   }
@@ -89,8 +89,8 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
+      firstDate: DateTime(AppConstants.datePickerStartYear),
+      lastDate: DateTime(AppConstants.datePickerEndYear),
     );
     if (picked != null) {
       setState(() {
@@ -114,7 +114,9 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
   Future<CategoryModel?> _addNewCategoryQuickly() async {
     final nameController = TextEditingController();
     int selectedIconCode = Icons.category_rounded.codePoint;
-    int selectedColor = _type == TransactionType.income ? 0xFF2E7D32 : 0xFFE65100;
+    int selectedColor = _type == TransactionType.income
+        ? AppConstants.defaultIncomeCategoryColor
+        : AppConstants.defaultExpenseCategoryColor;
 
     final created = await showDialog<bool>(
       context: context,
@@ -247,10 +249,21 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
   }
 
   void _save() async {
+    if (widget.initialTransaction != null &&
+        !AppFormatters.isCurrentMonth(widget.initialTransaction!.date)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot edit records from past months.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
-    final amount = double.tryParse(_amountController.text.trim());
-    if (amount == null || amount <= 0) {
+    final enteredAmount = double.tryParse(_amountController.text.trim());
+    if (enteredAmount == null || enteredAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid amount greater than 0')),
       );
@@ -272,27 +285,53 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
       _selectedTime.minute,
     );
 
+    if (widget.initialTransaction != null &&
+        !AppFormatters.isCurrentMonth(combinedDateTime)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot change transaction date to a different month.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     final title = _titleController.text.trim();
+    final baseInr = AppFormatters.fromDisplayAmount(enteredAmount);
 
     if (widget.initialTransaction != null) {
       final updated = widget.initialTransaction!.copyWith(
-        amount: amount,
+        amount: baseInr,
         type: _type,
         categoryId: _selectedCategoryId!,
         date: combinedDateTime,
         title: title,
         paymentMode: _selectedPaymentMode,
+        baseInrAmount: baseInr,
+        attachmentPath: _attachmentPath,
+        clearAttachment: _attachmentPath == null,
       );
-      await widget.viewModel.updateTransaction(updated);
+      final success = await widget.viewModel.updateTransaction(updated);
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update: records outside current month cannot be modified.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     } else {
       final newTx = TransactionModel(
         id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
-        amount: amount,
+        amount: baseInr,
         type: _type,
         categoryId: _selectedCategoryId!,
         date: combinedDateTime,
         title: title,
         paymentMode: _selectedPaymentMode,
+        baseInrAmount: baseInr,
+        attachmentPath: _attachmentPath,
       );
       await widget.viewModel.addTransaction(newTx);
     }
@@ -305,7 +344,10 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isEditing = widget.initialTransaction != null;
+    final isCurrentMonth = widget.initialTransaction == null ||
+        AppFormatters.isCurrentMonth(widget.initialTransaction!.date);
 
     final categories = _type == TransactionType.income
         ? widget.viewModel.incomeCategories
@@ -320,11 +362,13 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: AppBrandTitle(
-          title: isEditing ? 'Edit Entry' : 'Add Cash Entry',
+          title: isEditing
+              ? (isCurrentMonth ? 'Edit Entry' : 'View Entry (Locked)')
+              : 'Add Cash Entry',
           logoSize: 24,
         ),
         actions: [
-          if (isEditing)
+          if (isEditing && isCurrentMonth)
             IconButton(
               icon: const Icon(Icons.delete_rounded, color: Colors.red),
               tooltip: 'Delete Entry',
@@ -355,6 +399,18 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                   if (context.mounted) Navigator.of(context).pop();
                 }
               },
+            )
+          else if (isEditing && !isCurrentMonth)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Tooltip(
+                message: 'Past Month Record (Read-Only)',
+                child: Icon(
+                  Icons.lock_rounded,
+                  color: isDark ? const Color(0xFFFACC15) : const Color(0xFFD97706),
+                  size: 22,
+                ),
+              ),
             ),
         ],
       ),
@@ -365,6 +421,65 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (!isCurrentMonth) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF332A15)
+                        : const Color(0xFFFEF9C3),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF854D0E)
+                          : const Color(0xFFFDE047),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.lock_rounded,
+                        size: 20,
+                        color: isDark
+                            ? const Color(0xFFFACC15)
+                            : const Color(0xFF854D0E),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Past Month Record (Read-Only)',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? const Color(0xFFFEF08A)
+                                    : const Color(0xFF713F12),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Editing and deleting are only permitted for current month data. This record cannot be modified.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? const Color(0xFFE2E8F0)
+                                    : const Color(0xFF854D0E),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
               // Segmented Button: Cash In (Income) vs Cash Out (Expense)
               Center(
                 child: SegmentedButton<TransactionType>(
@@ -386,12 +501,14 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                     ),
                   ],
                   selected: {_type},
-                  onSelectionChanged: (set) {
-                    setState(() {
-                      _type = set.first;
-                      _setDefaultCategoryForType(_type);
-                    });
-                  },
+                  onSelectionChanged: isCurrentMonth
+                      ? (set) {
+                          setState(() {
+                            _type = set.first;
+                            _setDefaultCategoryForType(_type);
+                          });
+                        }
+                      : null,
                 ),
               ),
 
@@ -427,6 +544,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                     Expanded(
                       child: TextFormField(
                         controller: _amountController,
+                        readOnly: !isCurrentMonth,
                         keyboardType:
                             const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [
@@ -463,21 +581,11 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
               const SizedBox(height: 24),
 
               // Category Selector Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Category',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _addNewCategoryQuickly,
-                    icon: const Icon(Icons.add_rounded, size: 18),
-                    label: const Text('New Category'),
-                  ),
-                ],
+              Text(
+                'Category',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
 
@@ -489,18 +597,18 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                       .firstOrNull;
 
                   return InkWell(
-                    onTap: _openCategoryPickerSheet,
+                    onTap: isCurrentMonth ? _openCategoryPickerSheet : null,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 12,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: isDark ? const Color(0xFF1E293B) : Colors.white,
                         border: Border.all(
                           color: selectedCategory != null
                               ? selectedCategory.color.withValues(alpha: 0.45)
-                              : const Color(0xFFCBD5E1),
+                              : (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
                           width: 1.2,
                         ),
                       ),
@@ -531,10 +639,10 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                                 children: [
                                   Text(
                                     selectedCategory.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
-                                      color: Color(0xFF0F172A),
+                                      color: isDark ? const Color(0xFFF8FAFC) : const Color(0xFF0F172A),
                                     ),
                                   ),
                                   const SizedBox(height: 2),
@@ -542,9 +650,9 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                                     _type == TransactionType.income
                                         ? 'Cash In Category'
                                         : 'Cash Out Category',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
-                                      color: Color(0xFF64748B),
+                                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                     ),
                                   ),
                                 ],
@@ -555,9 +663,9 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                               width: 40,
                               height: 40,
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
+                                color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
                                 border: Border.all(
-                                  color: const Color(0xFFCBD5E1),
+                                  color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
                                 ),
                               ),
                               child: const Icon(
@@ -578,37 +686,78 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                               ),
                             ),
                           ],
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
+                          if (isCurrentMonth)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF334155)
+                                    : const Color(0xFFF1F5F9),
+                                border: Border.all(
+                                  color: isDark
+                                      ? const Color(0xFF475569)
+                                      : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Select',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark
+                                          ? const Color(0xFFF8FAFC)
+                                          : const Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    size: 18,
+                                    color: isDark
+                                        ? const Color(0xFFF8FAFC)
+                                        : const Color(0xFF0F172A),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 14,
+                                    color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Locked',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Select',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF334155),
-                                  ),
-                                ),
-                                SizedBox(width: 4),
-                                Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  size: 18,
-                                  color: Color(0xFF334155),
-                                ),
-                              ],
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -638,7 +787,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                           borderRadius: BorderRadius.zero,
                         ),
                       ),
-                      onPressed: _pickDate,
+                      onPressed: isCurrentMonth ? _pickDate : null,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -652,7 +801,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                           borderRadius: BorderRadius.zero,
                         ),
                       ),
-                      onPressed: _pickTime,
+                      onPressed: isCurrentMonth ? _pickTime : null,
                     ),
                   ),
                 ],
@@ -678,13 +827,15 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                       child: ChoiceChip(
                         label: Text(mode),
                         selected: isSelected,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() {
-                              _selectedPaymentMode = mode;
-                            });
-                          }
-                        },
+                        onSelected: isCurrentMonth
+                            ? (selected) {
+                                if (selected) {
+                                  setState(() {
+                                    _selectedPaymentMode = mode;
+                                  });
+                                }
+                              }
+                            : null,
                       ),
                     );
                   }).toList(),
@@ -703,6 +854,7 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _titleController,
+                readOnly: !isCurrentMonth,
                 maxLines: 2,
                 decoration: const InputDecoration(
                   hintText: 'e.g. Grocery items, Monthly salary, Uber ride',
@@ -712,30 +864,63 @@ class _AddEditTransactionScreenState extends State<AddEditTransactionScreen> {
                 ),
               ),
 
+              const SizedBox(height: 24),
+
+              // Optional Receipt / Document Attachment
+              AttachmentPickerBox(
+                attachmentPath: _attachmentPath,
+                isReadOnly: !isCurrentMonth,
+                onAttachmentChanged: (newPath) {
+                  setState(() {
+                    _attachmentPath = newPath;
+                  });
+                },
+              ),
+
               const SizedBox(height: 36),
 
               // Submit Button
               SizedBox(
                 width: double.infinity,
                 height: 52,
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _type == TransactionType.income
-                        ? Colors.green.shade700
-                        : Colors.red.shade700,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.zero,
-                    ),
-                  ),
-                  onPressed: _save,
-                  child: Text(
-                    isEditing ? 'Update Entry' : 'Save Entry',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+                child: isCurrentMonth
+                    ? FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _type == TransactionType.income
+                              ? Colors.green.shade700
+                              : Colors.red.shade700,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero,
+                          ),
+                        ),
+                        onPressed: _save,
+                        child: Text(
+                          isEditing ? 'Update Entry' : 'Save Entry',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    : FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: isDark
+                              ? const Color(0xFF334155)
+                              : Colors.grey.shade400,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero,
+                          ),
+                        ),
+                        onPressed: null,
+                        icon: const Icon(Icons.lock_rounded, size: 18),
+                        label: const Text(
+                          'Locked — Past Month Record',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(height: 20),
             ],
@@ -850,14 +1035,26 @@ class _CategoryPickerBottomSheetState
                           ],
                         ),
                       ),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
+                      FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
                           visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero,
+                          ),
                         ),
                         onPressed: widget.onAddNewCategory,
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('New'),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text(
+                          'New Category',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close_rounded, size: 20),

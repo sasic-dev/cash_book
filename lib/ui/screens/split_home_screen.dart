@@ -4,6 +4,8 @@ import '../view_models/cash_book_view_model.dart';
 import '../widgets/add_edit_group_dialog.dart';
 import '../widgets/add_edit_person_dialog.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/settings_scope.dart';
+import '../widgets/user_account_setup_dialog.dart';
 import 'add_edit_split_expense_screen.dart';
 import 'group_detail_screen.dart';
 import 'person_detail_screen.dart';
@@ -52,7 +54,7 @@ class SplitHomeScreen extends StatelessWidget {
                 ),
                 // New Group Button: Squad/community icon in distinct purple container
                 Container(
-                  margin: const EdgeInsets.only(top: 8, bottom: 8, left: 4, right: 12),
+                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                   decoration: BoxDecoration(
                     color: Colors.deepPurple.shade50,
                     border: Border.all(color: Colors.deepPurple.shade200),
@@ -64,6 +66,35 @@ class SplitHomeScreen extends StatelessWidget {
                     onPressed: () {
                       AddEditGroupDialog.show(context, viewModel: vm);
                     },
+                  ),
+                ),
+                // User Account / Profile Button
+                Tooltip(
+                  message: 'My Account (${vm.currentUser.name})',
+                  child: InkWell(
+                    onTap: () {
+                      final settingsVm = SettingsScope.maybeOf(context);
+                      UserAccountSetupDialog.show(
+                        context,
+                        cashBookViewModel: vm,
+                        settingsViewModel: settingsVm,
+                      );
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 8, bottom: 8, left: 4, right: 12),
+                      width: 36,
+                      height: 36,
+                      color: vm.currentUser.color,
+                      alignment: Alignment.center,
+                      child: Text(
+                        vm.currentUser.initials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -326,175 +357,332 @@ class SplitHomeScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildCurrentUserCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final vm = viewModel;
+    final user = vm.currentUser;
+
+    return Card(
+      elevation: 1.5,
+      shadowColor: const Color(0xFF0F172A).withValues(alpha: isDark ? 0.3 : 0.08),
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.zero,
+        side: BorderSide(
+          color: theme.colorScheme.primary.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: InkWell(
+        onTap: () {
+          final settingsVm = SettingsScope.maybeOf(context);
+          UserAccountSetupDialog.show(
+            context,
+            cashBookViewModel: vm,
+            settingsViewModel: settingsVm,
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                color: user.color,
+                alignment: Alignment.center,
+                child: Text(
+                  user.initials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                          child: Text(
+                            'YOU',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      user.upiId != null && user.upiId!.isNotEmpty
+                          ? 'UPI: ${user.upiId}'
+                          : (user.phoneNumber != null && user.phoneNumber!.isNotEmpty
+                              ? user.phoneNumber!
+                              : 'Tap to configure profile & UPI ID'),
+                      style: TextStyle(
+                        color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  side: BorderSide(
+                    color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                onPressed: () {
+                  final settingsVm = SettingsScope.maybeOf(context);
+                  UserAccountSetupDialog.show(
+                    context,
+                    cashBookViewModel: vm,
+                    settingsViewModel: settingsVm,
+                  );
+                },
+                icon: const Icon(Icons.edit_outlined, size: 14),
+                label: const Text('Edit', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFriendsTab(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final vm = viewModel;
     final otherPeople = vm.people.where((p) => !p.isCurrentUser).toList();
 
-    if (otherPeople.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+      children: [
+        _buildCurrentUserCard(context),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 4, 2, 8),
+          child: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-                  border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
-                ),
-                child: Icon(
-                  Icons.person_add_alt_1_rounded,
-                  size: 48,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No friends added yet',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
               Text(
-                'Add friends to split bills, track shared meals, trips & rent.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600),
+                'FRIENDS (${otherPeople.length})',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade700,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => AddEditPersonDialog.show(context, viewModel: vm),
+                icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
+                label: const Text('Add Friend', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
         ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-      itemCount: otherPeople.length,
-      itemBuilder: (context, index) {
-        final person = otherPeople[index];
-        final balance = vm.getPairwiseBalanceWith(person.id);
-
-        return Card(
-          elevation: 1.5,
-          shadowColor: const Color(0xFF0F172A).withValues(alpha: isDark ? 0.3 : 0.08),
-          margin: const EdgeInsets.only(bottom: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero,
-            side: BorderSide(
-              color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-            ),
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PersonDetailScreen(
-                    viewModel: vm,
-                    personId: person.id,
-                  ),
-                ),
-              );
-            },
-            leading: Container(
-              width: 42,
-              height: 42,
-              color: person.color,
-              alignment: Alignment.center,
-              child: Text(
-                person.initials,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            title: Text(
-              person.name,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              person.phoneNumber ?? 'Tap to view shared activity',
-              style: TextStyle(
-                color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
-                fontSize: 12,
-              ),
-            ),
-            trailing: Row(
+        if (otherPeople.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (balance > 0.01) ...[
-                      Text(
-                        '+${AppFormatters.currency(balance)}',
-                        style: TextStyle(
-                          color: isDark ? const Color(0xFF4ADE80) : Colors.green.shade700,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      Text(
-                        'owes you',
-                        style: TextStyle(
-                          color: isDark ? const Color(0xFF4ADE80) : Colors.green.shade700,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ] else if (balance < -0.01) ...[
-                      Text(
-                        '-${AppFormatters.currency(-balance)}',
-                        style: TextStyle(
-                          color: isDark ? const Color(0xFFF87171) : Colors.red.shade700,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      Text(
-                        'you owe',
-                        style: TextStyle(
-                          color: isDark ? const Color(0xFFF87171) : Colors.red.shade700,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ] else ...[
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            color: isDark ? const Color(0xFF64748B) : Colors.grey.shade500,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Settled',
-                            style: TextStyle(
-                              color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+                    border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2)),
+                  ),
+                  child: Icon(
+                    Icons.person_add_alt_1_rounded,
+                    size: 44,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: isDark ? const Color(0xFF64748B) : Colors.grey,
+                const SizedBox(height: 16),
+                const Text(
+                  'No friends added yet',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Add friends to split bills, track shared meals, trips & rent.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600),
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  onPressed: () => AddEditPersonDialog.show(context, viewModel: vm),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Add Friend'),
                 ),
               ],
             ),
-          ),
-        );
-      },
+          )
+        else
+          for (final person in otherPeople) ...[
+            Builder(
+              builder: (context) {
+                final balance = vm.getPairwiseBalanceWith(person.id);
+                return Card(
+                  elevation: 1.5,
+                  shadowColor: const Color(0xFF0F172A).withValues(alpha: isDark ? 0.3 : 0.08),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.zero,
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PersonDetailScreen(
+                            viewModel: vm,
+                            personId: person.id,
+                          ),
+                        ),
+                      );
+                    },
+                    leading: Container(
+                      width: 42,
+                      height: 42,
+                      color: person.color,
+                      alignment: Alignment.center,
+                      child: Text(
+                        person.initials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      person.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      person.phoneNumber ?? (person.upiId != null ? 'UPI: ${person.upiId}' : 'Tap to view shared activity'),
+                      style: TextStyle(
+                        color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (balance > 0.01) ...[
+                              Text(
+                                '+${AppFormatters.currency(balance)}',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFF4ADE80) : Colors.green.shade700,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                'owes you',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFF4ADE80) : Colors.green.shade700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ] else if (balance < -0.01) ...[
+                              Text(
+                                '-${AppFormatters.currency(-balance)}',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFFF87171) : Colors.red.shade700,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                'you owe',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFFF87171) : Colors.red.shade700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ] else ...[
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: isDark ? const Color(0xFF64748B) : Colors.grey.shade500,
+                                    size: 14,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Settled',
+                                    style: TextStyle(
+                                      color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: isDark ? const Color(0xFF64748B) : Colors.grey,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+      ],
     );
   }
 
@@ -858,6 +1046,28 @@ class SplitHomeScreen extends StatelessWidget {
                       fontSize: 11,
                     ),
                   ),
+                  if (!AppFormatters.isCurrentMonth(exp.date)) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.lock_outline_rounded,
+                          size: 10,
+                          color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Past Month',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

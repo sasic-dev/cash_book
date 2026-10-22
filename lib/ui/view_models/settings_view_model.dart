@@ -4,12 +4,12 @@ import '../../data/services/settings_service.dart';
 import '../utils/formatters.dart';
 
 class SettingsViewModel extends ChangeNotifier {
-  final SettingsService _service;
+  final ISettingsService _service;
 
   AppSettings _settings = const AppSettings();
   bool _isLoading = true;
 
-  SettingsViewModel({SettingsService? service})
+  SettingsViewModel({ISettingsService? service})
       : _service = service ?? SettingsService();
 
   AppSettings get settings => _settings;
@@ -32,10 +32,13 @@ class SettingsViewModel extends ChangeNotifier {
       decimalDigits: _settings.decimalDigits,
       symbolBeforeAmount: _settings.symbolBeforeAmount,
       useIndianGrouping: _settings.useIndianGrouping,
+      currencyCode: _settings.currencyCode,
+      ratesToInr: _settings.customExchangeRates,
     );
     AppFormatters.updateDateTimeFormat(
       dateFormatPattern: _settings.dateFormatPattern,
       is24Hour: _settings.is24HourTime,
+      timeFormatPattern: _settings.timeFormatPattern,
     );
   }
 
@@ -83,6 +86,13 @@ class SettingsViewModel extends ChangeNotifier {
     await _service.saveSettings(_settings);
   }
 
+  Future<void> setExchangeRates(Map<String, double> rates) async {
+    _settings = _settings.copyWith(customExchangeRates: rates);
+    _applyFormatters();
+    notifyListeners();
+    await _service.saveSettings(_settings);
+  }
+
   Future<void> setDateFormat(String pattern) async {
     _settings = _settings.copyWith(dateFormatPattern: pattern);
     _applyFormatters();
@@ -90,9 +100,34 @@ class SettingsViewModel extends ChangeNotifier {
     await _service.saveSettings(_settings);
   }
 
-  Future<void> setTimeFormat(bool is24Hour) async {
-    _settings = _settings.copyWith(is24HourTime: is24Hour);
+  Future<void> setTimeFormatPattern(String pattern) async {
+    final is24 = pattern.startsWith('HH');
+    _settings = _settings.copyWith(
+      timeFormatPattern: pattern,
+      is24HourTime: is24,
+    );
     _applyFormatters();
+    notifyListeners();
+    await _service.saveSettings(_settings);
+  }
+
+  Future<void> setTimeFormat(bool is24Hour) async {
+    final pattern = is24Hour ? 'HH:mm' : 'hh:mm a';
+    await setTimeFormatPattern(pattern);
+  }
+
+  Future<void> updateAccountProfile({
+    required String name,
+    String? phone,
+    String? upiId,
+    bool completed = true,
+  }) async {
+    _settings = _settings.copyWith(
+      userName: name,
+      userPhone: phone,
+      userUpiId: upiId,
+      hasCompletedAccountSetup: completed,
+    );
     notifyListeners();
     await _service.saveSettings(_settings);
   }

@@ -1,5 +1,6 @@
 // ignore_for_file: non_const_argument_for_const_parameter
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/transaction_type.dart';
 import '../view_models/cash_book_view_model.dart';
@@ -41,7 +42,7 @@ class _CategoriesScreenState extends State<CategoriesScreen>
     int selectedIconCode = categoryToEdit?.iconCodePoint ??
         (type == TransactionType.income ? Icons.account_balance_wallet_rounded.codePoint : Icons.shopping_bag_rounded.codePoint);
     int selectedColor = categoryToEdit?.colorValue ??
-        (type == TransactionType.income ? 0xFF2E7D32 : 0xFFE65100);
+        (type == TransactionType.income ? AppConstants.defaultIncomeCategoryColor : AppConstants.defaultExpenseCategoryColor);
 
     final formKey = GlobalKey<FormState>();
 
@@ -78,10 +79,10 @@ class _CategoriesScreenState extends State<CategoriesScreen>
                           setDialogState(() {
                             type = set.first;
                             if (type == TransactionType.income) {
-                              selectedColor = 0xFF2E7D32;
+                              selectedColor = AppConstants.defaultIncomeCategoryColor;
                               selectedIconCode = Icons.account_balance_wallet_rounded.codePoint;
                             } else {
-                              selectedColor = 0xFFE65100;
+                              selectedColor = AppConstants.defaultExpenseCategoryColor;
                               selectedIconCode = Icons.shopping_bag_rounded.codePoint;
                             }
                           });

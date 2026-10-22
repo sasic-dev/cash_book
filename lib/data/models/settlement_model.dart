@@ -9,6 +9,7 @@ class SettlementModel {
   final String? notes;
   final String? linkedCashBookTxId;
   final DateTime createdAt;
+  final double? baseInrAmount;
 
   const SettlementModel({
     required this.id,
@@ -21,6 +22,7 @@ class SettlementModel {
     this.notes,
     this.linkedCashBookTxId,
     required this.createdAt,
+    this.baseInrAmount,
   });
 
   SettlementModel copyWith({
@@ -34,6 +36,7 @@ class SettlementModel {
     String? notes,
     String? linkedCashBookTxId,
     DateTime? createdAt,
+    double? baseInrAmount,
   }) {
     return SettlementModel(
       id: id ?? this.id,
@@ -46,6 +49,7 @@ class SettlementModel {
       notes: notes ?? this.notes,
       linkedCashBookTxId: linkedCashBookTxId ?? this.linkedCashBookTxId,
       createdAt: createdAt ?? this.createdAt,
+      baseInrAmount: baseInrAmount ?? this.baseInrAmount,
     );
   }
 
@@ -61,6 +65,7 @@ class SettlementModel {
       'notes': notes,
       'linked_cash_book_tx_id': linkedCashBookTxId,
       'created_at': createdAt.toIso8601String(),
+      if (baseInrAmount != null) 'base_inr_amount': baseInrAmount,
     };
   }
 
@@ -76,6 +81,7 @@ class SettlementModel {
       notes: map['notes'] as String?,
       linkedCashBookTxId: map['linked_cash_book_tx_id'] as String?,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
+      baseInrAmount: (map['base_inr_amount'] as num?)?.toDouble(),
     );
   }
 }

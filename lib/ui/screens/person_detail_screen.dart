@@ -354,6 +354,28 @@ class PersonDetailScreen extends StatelessWidget {
                               color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
                             ),
                           ),
+                          if (!AppFormatters.isCurrentMonth(exp.date)) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.lock_outline_rounded,
+                                  size: 10,
+                                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Past Month',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

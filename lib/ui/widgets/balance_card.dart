@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../utils/formatters.dart';
 
 class BalanceCard extends StatelessWidget {
@@ -21,34 +22,34 @@ class BalanceCard extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     final inBoxBg = isDark
-        ? const Color(0xFF14532D).withValues(alpha: 0.35)
-        : const Color(0xFFF0FDF4);
+        ? AppConstants.incomeDarkBg.withValues(alpha: 0.35)
+        : AppConstants.incomeLightBg;
     final inBoxBorder = isDark
-        ? const Color(0xFF16A34A).withValues(alpha: 0.5)
-        : const Color(0xFFBBF7D0);
-    final inTextColor = isDark ? const Color(0xFF4ADE80) : const Color(0xFF15803D);
+        ? AppConstants.incomeGreen.withValues(alpha: 0.5)
+        : AppConstants.incomeLightBorder;
+    final inTextColor = isDark ? AppConstants.incomeDarkText : AppConstants.incomeGreenDark;
 
     final outBoxBg = isDark
-        ? const Color(0xFF7F1D1D).withValues(alpha: 0.35)
-        : const Color(0xFFFEF2F2);
+        ? AppConstants.expenseDarkBg.withValues(alpha: 0.35)
+        : AppConstants.expenseLightBg;
     final outBoxBorder = isDark
-        ? const Color(0xFFDC2626).withValues(alpha: 0.5)
-        : const Color(0xFFFECACA);
-    final outTextColor = isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C);
+        ? AppConstants.expenseRed.withValues(alpha: 0.5)
+        : AppConstants.expenseLightBorder;
+    final outTextColor = isDark ? AppConstants.expenseDarkText : AppConstants.expenseRedDark;
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        color: isDark ? AppConstants.darkCardBg : AppConstants.lightCardBg,
         border: Border.all(
-          color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+          color: isDark ? AppConstants.darkBorder : AppConstants.lightInputBorder,
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
             color: isDark
                 ? Colors.black.withValues(alpha: 0.25)
-                : const Color(0xFF0F172A).withValues(alpha: 0.06),
+                : AppConstants.darkSurface.withValues(alpha: 0.06),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -76,7 +77,7 @@ class BalanceCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                      color: isDark ? AppConstants.darkTextSecondary : AppConstants.lightTextSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -85,9 +86,9 @@ class BalanceCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                  color: isDark ? AppConstants.darkBorder : AppConstants.lightBorder,
                   border: Border.all(
-                    color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+                    color: isDark ? AppConstants.darkInputBorder : AppConstants.lightInputBorder,
                     width: 1,
                   ),
                 ),
@@ -130,7 +131,7 @@ class BalanceCard extends StatelessWidget {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF15803D).withValues(alpha: isDark ? 0.15 : 0.05),
+                        color: AppConstants.incomeGreenDark.withValues(alpha: isDark ? 0.15 : 0.05),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
@@ -140,7 +141,7 @@ class BalanceCard extends StatelessWidget {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(4),
-                        color: const Color(0xFF16A34A),
+                        color: AppConstants.incomeGreen,
                         child: const Icon(
                           Icons.arrow_downward_rounded,
                           color: Colors.white,
@@ -194,7 +195,7 @@ class BalanceCard extends StatelessWidget {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFB91C1C).withValues(alpha: isDark ? 0.15 : 0.05),
+                        color: AppConstants.expenseRedDark.withValues(alpha: isDark ? 0.15 : 0.05),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
@@ -204,7 +205,7 @@ class BalanceCard extends StatelessWidget {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(4),
-                        color: const Color(0xFFDC2626),
+                        color: AppConstants.expenseRed,
                         child: const Icon(
                           Icons.arrow_upward_rounded,
                           color: Colors.white,
